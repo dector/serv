@@ -51,13 +51,14 @@ const directoryTemplate = `<!DOCTYPE html>
         .dir { font-weight: bold; }
         .file { color: #666; }
         .icon { width: 16px; height: 16px; }
+        .footer { margin-top: 40px; color: #666; font-size: 14px; } .footer a { color: #0066cc; text-decoration: none; display: inline-block; } .footer a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
     <h1>{{range $i, $segment := .PathSegments}}<a href="{{$segment.URL}}">{{if eq $segment.Name "."}}{{if $segment.IsLast}}/{{else}}/{{end}}{{else}}{{$segment.Name}}/{{end}}</a>{{end}}</h1>
     <ul>
 {{range .Entries}}        <li><a href="{{.Name}}{{.Suffix}}" class="{{.CSSClass}}">{{.Icon}} {{.Name}}{{.Suffix}}</a></li>
-{{end}}    </ul>
+{{end}}    </ul><div class="footer">served by <a href="https://github.com/dector/serv" target="_blank">serv</a></div>
 </body>
 </html>`
 
