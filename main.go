@@ -3,14 +3,19 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v3"
 )
+
+const defaultPort = 8080
 
 func main() {
 	app := &cli.Command{
@@ -20,7 +25,7 @@ func main() {
 			&cli.StringFlag{
 				Name:    "port",
 				Aliases: []string{"p"},
-				Value:   "8080",
+				Value:   fmt.Sprintf("%d", defaultPort),
 				Usage:   "HTTP server port",
 			},
 		},
@@ -41,7 +46,7 @@ func main() {
 
 func serveAction(ctx context.Context, cmd *cli.Command) error {
 	file := cmd.StringArg("file")
-	port := cmd.String("port")
+	port := choosePort(cmd.String("port"))
 
 	file, err := filepath.Abs(file)
 	if err != nil {
@@ -83,4 +88,48 @@ func detectContentType(file string) (string, error) {
 	}
 
 	return mime.TypeByExtension(filepath.Ext(file)), nil
+}
+
+func choosePort(port string) string {
+	portNum, err := strconv.Atoi(port)
+	if err != nil {
+		fmt.Printf("Warning: invalid port '%s', using default port %d\n", port, defaultPort)
+		portNum = defaultPort
+	}
+
+	if isPortAvailable(portNum) {
+		return fmt.Sprintf("%d", portNum)
+	}
+	fmt.Printf("Warning: port %d is busy, finding available port...\n", portNum)
+
+	// Try up to 100 random ports in the range 10000-20000
+	tried := make(map[int]struct{})
+
+	const minPort, maxPort = 10000, 20000
+	const maxAttempts = 100
+	for attemptsLeft := 100; attemptsLeft > 0; attemptsLeft-- {
+		randomPort := func() int {
+			return minPort + rand.IntN(maxPort-minPort+1)
+		}
+		p := randomPort()
+
+		if !isPortAvailable(p) {
+			tried[p] = struct{}{}
+			continue
+		}
+
+		return fmt.Sprintf("%d", p)
+	}
+
+	panic("no available ports found in range 10000-20000")
+}
+
+func isPortAvailable(port int) bool {
+	addr := fmt.Sprintf(":%d", port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return false
+	}
+	ln.Close()
+	return true
 }
