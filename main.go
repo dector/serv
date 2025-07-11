@@ -28,6 +28,12 @@ func main() {
 				Value:   fmt.Sprintf("%d", defaultPort),
 				Usage:   "HTTP server port",
 			},
+			&cli.BoolFlag{
+				Name:    "version",
+				Aliases: []string{"v"},
+				Value:   false,
+				Usage:   "Print version and exit",
+			},
 		},
 		Arguments: []cli.Argument{
 			&cli.StringArg{
@@ -45,6 +51,11 @@ func main() {
 }
 
 func serveAction(ctx context.Context, cmd *cli.Command) error {
+	if cmd.Bool("version") {
+		fmt.Println("0.1.0-00")
+		return nil
+	}
+
 	file := cmd.StringArg("file")
 	port := choosePort(cmd.String("port"))
 
