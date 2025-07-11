@@ -39,9 +39,10 @@ const directoryTemplate = `<!DOCTYPE html>
     <title>Directory listing for {{.Path}}</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 40px; }
-        h1 { color: #333; display: flex; align-items: center; gap: 0; }
+        h1 { color: #333; display: flex; align-items: center; gap: 8px; }
         h1 a { text-decoration: none; color: #0066cc; }
         h1 a:hover { text-decoration: underline; }
+        h1 a:first-child { padding-left: 20px; }
         h1 .separator { margin: 0 2px; color: #666; }
         ul { list-style-type: none; padding: 0; }
         li { margin: 5px 0; display: flex; align-items: center; }
@@ -53,7 +54,7 @@ const directoryTemplate = `<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <h1>{{range $i, $segment := .PathSegments}}{{if and (eq $segment.Name ".") $segment.IsLast}}{{$segment.Name}}{{else}}<a href="{{$segment.URL}}">{{$segment.Name}}</a>{{end}}{{if not $segment.IsLast}}<span class="separator">/</span>{{end}}{{end}}</h1>
+    <h1>{{range $i, $segment := .PathSegments}}<a href="{{$segment.URL}}">{{if eq $segment.Name "."}}{{if $segment.IsLast}}/{{else}}/{{end}}{{else}}{{$segment.Name}}/{{end}}</a>{{end}}</h1>
     <ul>
 {{range .Entries}}        <li><a href="{{.Name}}{{.Suffix}}" class="{{.CSSClass}}">{{.Icon}} {{.Name}}{{.Suffix}}</a></li>
 {{end}}    </ul>
@@ -123,10 +124,10 @@ func GenerateFolderPage(node *fs.FsNode, relativePath string) []byte {
 	} else {
 		// Add root segment
 		pathSegments = append(pathSegments, PathSegment{Name: ".", URL: "/", IsLast: false})
-		
+
 		// Split path and create segments
 		parts := strings.Split(strings.Trim(filepath.ToSlash(relativePath), "/"), "/")
-		
+
 		currentPath := ""
 		for i, part := range parts {
 			if part == "" {
