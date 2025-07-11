@@ -21,6 +21,28 @@ import (
 
 const defaultPort = 8080
 
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (lw *loggingResponseWriter) WriteHeader(code int) {
+	lw.statusCode = code
+	lw.ResponseWriter.WriteHeader(code)
+}
+
+func logRequest(method string, statusCode int, path string) {
+	var color string
+	if statusCode >= 200 && statusCode < 400 {
+		color = "\033[48;5;22m" // Dark green background
+	} else {
+		color = "\033[48;5;52m" // Dark red background
+	}
+	reset := "\033[0m"
+
+	fmt.Printf("%s %s %s %d %s\n", color, method, reset, statusCode, path)
+}
+
 func main() {
 	app := &cli.Command{
 		Name:  "serv",
@@ -92,6 +114,10 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		lw := &loggingResponseWriter{ResponseWriter: w, statusCode: 200}
+		defer func() {
+			logRequest(r.Method, lw.statusCode, r.URL.Path)
+		}()
 		// Clean the URL path and handle root requests
 		requestedPath := path.Clean(r.URL.Path)
 		if requestedPath == "/" {
@@ -103,7 +129,8 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 			} else {
 				// If serving a single file, only allow requests to that file
 				if requestedPath != "/"+filepath.Base(rootFile) && requestedPath != "/" {
-					http.NotFound(w, r)
+					lw.statusCode = 404
+					http.NotFound(lw, r)
 					return
 				}
 				requestedPath = basePath
@@ -114,10 +141,12 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		fileInfo, err := fs.Stat(fsys, requestedPath)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
-				http.NotFound(w, r)
+				lw.statusCode = 404
+				http.NotFound(lw, r)
 				return
 			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			lw.statusCode = 500
+			http.Error(lw, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -130,23 +159,23 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 
 			node, err := servfs.GetFsNode(fullPath)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				lw.statusCode = 500
+				http.Error(lw, err.Error(), http.StatusInternalServerError)
 				return
 			}
 
-			w.Header().Set("Content-Type", "text/html")
 			w.Write(pages.GenerateFolderPage(node, requestedPath))
 		} else {
 			// Serve the file using http.FileServer with the filesystem
 			contentType := mime.TypeByExtension(filepath.Ext(requestedPath))
 			if contentType != "" {
-				w.Header().Set("Content-Type", contentType)
+				lw.Header().Set("Content-Type", contentType)
 			}
 
 			fileServer := http.FileServer(http.FS(fsys))
 			// Create a new request with the cleaned path
 			r.URL.Path = "/" + requestedPath
-			fileServer.ServeHTTP(w, r)
+			fileServer.ServeHTTP(lw, r)
 		}
 	})
 
