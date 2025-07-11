@@ -3,15 +3,17 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"math/rand/v2"
 	"mime"
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 
-	"github.com/dector/serv/fs"
+	servfs "github.com/dector/serv/fs"
 	"github.com/dector/serv/pages"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v3"
@@ -70,31 +72,81 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		return errors.Errorf("file does not exist: %s", rootFile)
 	}
 
+	// Create filesystem rooted at the specified directory or file's parent
+	var fsys fs.FS
+	var basePath string
+
+	rootInfo, err := os.Stat(rootFile)
+	if err != nil {
+		return errors.Wrap(err, "failed to stat root file")
+	}
+
+	if rootInfo.IsDir() {
+		fsys = os.DirFS(rootFile)
+		basePath = "."
+	} else {
+		// If serving a single file, use its parent directory as the filesystem root
+		parentDir := filepath.Dir(rootFile)
+		fsys = os.DirFS(parentDir)
+		basePath = filepath.Base(rootFile)
+	}
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		node, err := fs.GetFsNode(rootFile)
+		// Clean the URL path and handle root requests
+		requestedPath := path.Clean(r.URL.Path)
+		if requestedPath == "/" {
+			requestedPath = basePath
+		} else {
+			// For non-root requests, join with basePath if serving a directory
+			if rootInfo.IsDir() {
+				requestedPath = path.Join(basePath, requestedPath[1:]) // remove leading slash
+			} else {
+				// If serving a single file, only allow requests to that file
+				if requestedPath != "/"+filepath.Base(rootFile) && requestedPath != "/" {
+					http.NotFound(w, r)
+					return
+				}
+				requestedPath = basePath
+			}
+		}
+
+		// Use fs.Stat to get file info securely within the filesystem
+		fileInfo, err := fs.Stat(fsys, requestedPath)
 		if err != nil {
-			if os.IsNotExist(err) {
+			if errors.Is(err, fs.ErrNotExist) {
 				http.NotFound(w, r)
 				return
 			}
-
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		if node.IsFile {
-			contentType, err := detectContentType(node)
+		if fileInfo.IsDir() {
+			// For directories, we need to get the full path for the FsNode
+			fullPath := filepath.Join(rootFile, requestedPath)
+			if !rootInfo.IsDir() {
+				fullPath = rootFile // serving single file's parent, but this shouldn't happen
+			}
+
+			node, err := servfs.GetFsNode(fullPath)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 
-			w.Header().Set("Content-Type", contentType)
-			http.ServeFile(w, r, rootFile)
-		} else if node.IsDirectory {
 			w.Header().Set("Content-Type", "text/html")
+			w.Write(pages.GenerateFolderPage(node, requestedPath))
+		} else {
+			// Serve the file using http.FileServer with the filesystem
+			contentType := mime.TypeByExtension(filepath.Ext(requestedPath))
+			if contentType != "" {
+				w.Header().Set("Content-Type", contentType)
+			}
 
-			w.Write(pages.GenerateFolderPage(node))
+			fileServer := http.FileServer(http.FS(fsys))
+			// Create a new request with the cleaned path
+			r.URL.Path = "/" + requestedPath
+			fileServer.ServeHTTP(w, r)
 		}
 	})
 
@@ -102,7 +154,7 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 	return http.ListenAndServe(":"+port, nil)
 }
 
-func detectContentType(node *fs.FsNode) (string, error) {
+func detectContentType(node *servfs.FsNode) (string, error) {
 	if node.Info.IsDir() {
 		return "", errors.New("not implemented")
 	}

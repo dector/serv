@@ -42,14 +42,14 @@ const directoryTemplate = `<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <h1>[ {{.BaseName}} ]</h1>
+    <h1>{{.Path}}</h1>
     <ul>
 {{range .Entries}}        <li><a href="{{.Name}}{{.Suffix}}" class="{{.CSSClass}}">{{.Icon}} {{.Name}}{{.Suffix}}</a></li>
 {{end}}    </ul>
 </body>
 </html>`
 
-func GenerateFolderPage(node *fs.FsNode) []byte {
+func GenerateFolderPage(node *fs.FsNode, relativePath string) []byte {
 	entries, err := os.ReadDir(node.Path)
 	if err != nil {
 		return []byte(fmt.Sprintf("<html><body><h1>Error reading directory</h1><p>%s</p></body></html>", err.Error()))
@@ -86,9 +86,16 @@ func GenerateFolderPage(node *fs.FsNode) []byte {
 		return dirEntries[i].Name < dirEntries[j].Name
 	})
 
+	displayPath := relativePath
+	if displayPath == "" || displayPath == "." {
+		displayPath = "./"
+	} else if displayPath[0] != '/' && displayPath[:2] != "./" {
+		displayPath = "./" + displayPath + "/"
+	}
+
 	data := DirectoryPageData{
-		Path:     node.Path,
-		BaseName: filepath.Base(node.Path),
+		Path:     displayPath,
+		BaseName: filepath.Base(displayPath),
 		Entries:  dirEntries,
 	}
 
