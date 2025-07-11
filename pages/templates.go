@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/dector/serv/fs"
 )
@@ -19,10 +20,17 @@ type DirectoryEntry struct {
 	CSSClass string
 }
 
+type PathSegment struct {
+	Name   string
+	URL    string
+	IsLast bool
+}
+
 type DirectoryPageData struct {
-	Path     string
-	BaseName string
-	Entries  []DirectoryEntry
+	Path         string
+	BaseName     string
+	PathSegments []PathSegment
+	Entries      []DirectoryEntry
 }
 
 const directoryTemplate = `<!DOCTYPE html>
@@ -31,7 +39,10 @@ const directoryTemplate = `<!DOCTYPE html>
     <title>Directory listing for {{.Path}}</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 40px; }
-        h1 { color: #333; }
+        h1 { color: #333; display: flex; align-items: center; gap: 0; }
+        h1 a { text-decoration: none; color: #0066cc; }
+        h1 a:hover { text-decoration: underline; }
+        h1 .separator { margin: 0 2px; color: #666; }
         ul { list-style-type: none; padding: 0; }
         li { margin: 5px 0; display: flex; align-items: center; }
         a { text-decoration: none; color: #0066cc; display: flex; align-items: center; gap: 8px; }
@@ -42,7 +53,7 @@ const directoryTemplate = `<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <h1>{{.Path}}</h1>
+    <h1>{{range $i, $segment := .PathSegments}}{{if and (eq $segment.Name ".") $segment.IsLast}}{{$segment.Name}}{{else}}<a href="{{$segment.URL}}">{{$segment.Name}}</a>{{end}}{{if not $segment.IsLast}}<span class="separator">/</span>{{end}}{{end}}</h1>
     <ul>
 {{range .Entries}}        <li><a href="{{.Name}}{{.Suffix}}" class="{{.CSSClass}}">{{.Icon}} {{.Name}}{{.Suffix}}</a></li>
 {{end}}    </ul>
@@ -105,10 +116,41 @@ func GenerateFolderPage(node *fs.FsNode, relativePath string) []byte {
 		displayPath = "./" + displayPath + "/"
 	}
 
+	// Generate path segments for breadcrumb navigation
+	var pathSegments []PathSegment
+	if relativePath == "" || relativePath == "." {
+		pathSegments = append(pathSegments, PathSegment{Name: ".", URL: "/", IsLast: true})
+	} else {
+		// Add root segment
+		pathSegments = append(pathSegments, PathSegment{Name: ".", URL: "/", IsLast: false})
+		
+		// Split path and create segments
+		parts := strings.Split(strings.Trim(filepath.ToSlash(relativePath), "/"), "/")
+		
+		currentPath := ""
+		for i, part := range parts {
+			if part == "" {
+				continue
+			}
+			if currentPath == "" {
+				currentPath = part
+			} else {
+				currentPath = currentPath + "/" + part
+			}
+			isLast := i == len(parts)-1
+			pathSegments = append(pathSegments, PathSegment{
+				Name:   part,
+				URL:    "/" + currentPath + "/",
+				IsLast: isLast,
+			})
+		}
+	}
+
 	data := DirectoryPageData{
-		Path:     displayPath,
-		BaseName: filepath.Base(displayPath),
-		Entries:  dirEntries,
+		Path:         displayPath,
+		BaseName:     filepath.Base(displayPath),
+		PathSegments: pathSegments,
+		Entries:      dirEntries,
 	}
 
 	tmpl, err := template.New("directory").Parse(directoryTemplate)
