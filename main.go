@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/dector/serv/fs"
+	"github.com/dector/serv/pages"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v3"
 )
@@ -56,49 +58,56 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		return nil
 	}
 
-	file := cmd.StringArg("file")
+	rootFile := cmd.StringArg("file")
 	port := choosePort(cmd.String("port"))
 
-	file, err := filepath.Abs(file)
+	rootFile, err := filepath.Abs(rootFile)
 	if err != nil {
 		return errors.Wrap(err, "failed to get absolute path")
 	}
 
-	if _, err := os.Stat(file); os.IsNotExist(err) {
-		return errors.Errorf("file does not exist: %s", file)
+	if _, err := os.Stat(rootFile); os.IsNotExist(err) {
+		return errors.Errorf("file does not exist: %s", rootFile)
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		contentType, err := detectContentType(file)
-
+		node, err := fs.GetFsNode(rootFile)
 		if err != nil {
 			if os.IsNotExist(err) {
 				http.NotFound(w, r)
 				return
 			}
+
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		w.Header().Set("Content-Type", contentType)
-		http.ServeFile(w, r, file)
+		if node.IsFile {
+			contentType, err := detectContentType(node)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			w.Header().Set("Content-Type", contentType)
+			http.ServeFile(w, r, rootFile)
+		} else if node.IsDirectory {
+			w.Header().Set("Content-Type", "text/html")
+
+			w.Write(pages.GenerateFolderPage(node))
+		}
 	})
 
-	fmt.Printf("Serving `%s` on http://localhost:%s\n", file, port)
+	fmt.Printf("Serving `%s` on http://localhost:%s\n", rootFile, port)
 	return http.ListenAndServe(":"+port, nil)
 }
 
-func detectContentType(file string) (string, error) {
-	info, err := os.Stat(file)
-	if err != nil {
-		return "", err
-	}
-
-	if info.IsDir() {
+func detectContentType(node *fs.FsNode) (string, error) {
+	if node.Info.IsDir() {
 		return "", errors.New("not implemented")
 	}
 
-	return mime.TypeByExtension(filepath.Ext(file)), nil
+	return mime.TypeByExtension(filepath.Ext(node.Path)), nil
 }
 
 func choosePort(port string) string {
