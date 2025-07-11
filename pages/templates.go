@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/dector/serv/fs"
 )
@@ -76,6 +77,14 @@ func GenerateFolderPage(node *fs.FsNode) []byte {
 			CSSClass: cssClass,
 		})
 	}
+
+	// Sort entries: folders first (alphabetically), then files (alphabetically)
+	sort.Slice(dirEntries, func(i, j int) bool {
+		if dirEntries[i].IsDir != dirEntries[j].IsDir {
+			return dirEntries[i].IsDir // directories come first
+		}
+		return dirEntries[i].Name < dirEntries[j].Name
+	})
 
 	data := DirectoryPageData{
 		Path:     node.Path,
