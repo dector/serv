@@ -78,7 +78,7 @@ func main() {
 
 func serveAction(ctx context.Context, cmd *cli.Command) error {
 	if cmd.Bool("version") {
-		fmt.Println("0.1.0-00")
+		fmt.Println("0.2.0-00")
 		return nil
 	}
 
