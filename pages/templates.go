@@ -36,7 +36,7 @@ type DirectoryPageData struct {
 const directoryTemplate = `<!DOCTYPE html>
 <html>
 <head>
-    <title>Directory listing for {{.Path}}</title>
+    <title>{{.Path}}</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 40px; }
         h1 { color: #333; display: flex; align-items: center; gap: 8px; }
