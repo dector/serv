@@ -5,3 +5,23 @@ tasks:
     cmds:
       - go run . {{.CLI_ARGS}}
     silent: true
+
+  build:all:
+    # deps:
+    #   - gen
+    env:
+      CGO_ENABLED: 0
+    cmds:
+      - rm -r ./out/release || true
+      - SUFFIX=$(date +%s%3N | shasum | head -c 8)
+      - go build -o /tmp/serv-$SUFFIX ./
+      - |
+        VERSION=$(/tmp/serv-$SUFFIX --version)
+        rm /tmp/serv-$SUFFIX
+        GOOS=linux GOARCH=amd64 go build -o out/release/serv-$VERSION-linux-amd64 ./
+        GOOS=linux GOARCH=arm64 go build -o out/release/serv-$VERSION-linux-arm64 ./
+        GOOS=darwin GOARCH=amd64 go build -o out/release/serv-$VERSION-darwin-amd64 ./
+        GOOS=darwin GOARCH=arm64 go build -o out/release/serv-$VERSION-darwin-arm64 ./
+        GOOS=windows GOARCH=amd64 go build -o out/release/serv-$VERSION-windows-amd64.exe ./
+        GOOS=windows GOARCH=arm64 go build -o out/release/serv-$VERSION-windows-arm64.exe ./
+      - sha256sum ./out/release/serv-* > ./out/release/checksums.txt
