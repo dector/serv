@@ -151,36 +151,62 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		}
 
 		if fileInfo.IsDir() {
-			// For directories, we need to get the full path for the FsNode
-			fullPath := filepath.Join(rootFile, requestedPath)
-			if !rootInfo.IsDir() {
-				fullPath = rootFile // serving single file's parent, but this shouldn't happen
-			}
-
-			node, err := servfs.GetFsNode(fullPath)
-			if err != nil {
-				lw.statusCode = 500
-				http.Error(lw, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			w.Write(pages.GenerateFolderPage(node, requestedPath, G.Version))
+			serveFolder(lw, requestedPath, fsys, fileInfo, rootFile)
 		} else {
-			// Serve the file using http.FileServer with the filesystem
-			contentType := mime.TypeByExtension(filepath.Ext(requestedPath))
-			if contentType != "" {
-				lw.Header().Set("Content-Type", contentType)
-			}
-
-			fileServer := http.FileServer(http.FS(fsys))
-			// Create a new request with the cleaned path
-			r.URL.Path = "/" + requestedPath
-			fileServer.ServeHTTP(lw, r)
+			serveFile(lw, requestedPath, fsys)
 		}
 	})
 
 	fmt.Printf("Serving `%s` on http://localhost:%s\n", rootFile, port)
 	return http.ListenAndServe(":"+port, nil)
+}
+
+func serveFolder(lw http.ResponseWriter, requestedPath string, fsys fs.FS, rootInfo fs.FileInfo, rootFile string) {
+	indexPath := path.Join(requestedPath, "index.html")
+	hasIndexHtml := func() bool {
+		if indexInfo, err := fs.Stat(fsys, indexPath); err == nil && !indexInfo.IsDir() {
+			return true
+		}
+		return false
+	}()
+	if hasIndexHtml {
+		serveFile(lw, indexPath, fsys)
+		return
+	}
+
+	// For directories without index.html, we need to get the full path for the FsNode
+	fullPath := filepath.Join(rootFile, requestedPath)
+	if !rootInfo.IsDir() {
+		fullPath = rootFile // serving single file's parent, but this shouldn't happen
+	}
+
+	node, err := servfs.GetFsNode(fullPath)
+	if err != nil {
+		// Set status code to 500 if possible
+		if lw, ok := lw.(*loggingResponseWriter); ok {
+			lw.statusCode = 500
+		}
+		http.Error(lw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	lw.Write(pages.GenerateFolderPage(node, requestedPath, G.Version))
+}
+
+func serveFile(lw http.ResponseWriter, requestedPath string, fsys fs.FS) {
+	// Serve the file using http.FileServer with the filesystem
+	contentType := mime.TypeByExtension(filepath.Ext(requestedPath))
+	if contentType != "" {
+		lw.Header().Set("Content-Type", contentType)
+	}
+
+	content, err := fs.ReadFile(fsys, requestedPath)
+	if err != nil {
+		http.Error(lw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	lw.Write(content)
 }
 
 func detectContentType(node *servfs.FsNode) (string, error) {
