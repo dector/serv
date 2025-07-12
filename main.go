@@ -19,8 +19,6 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-const defaultPort = 8080
-
 type loggingResponseWriter struct {
 	http.ResponseWriter
 	statusCode int
@@ -44,6 +42,8 @@ func logRequest(method string, statusCode int, path string) {
 }
 
 func main() {
+	G.Init()
+
 	app := &cli.Command{
 		Name:  "serv",
 		Usage: "Serve static files",
@@ -51,7 +51,7 @@ func main() {
 			&cli.StringFlag{
 				Name:    "port",
 				Aliases: []string{"p"},
-				Value:   fmt.Sprintf("%d", defaultPort),
+				Value:   fmt.Sprintf("%d", DefaultPort),
 				Usage:   "HTTP server port",
 			},
 			&cli.BoolFlag{
@@ -78,7 +78,7 @@ func main() {
 
 func serveAction(ctx context.Context, cmd *cli.Command) error {
 	if cmd.Bool("version") {
-		fmt.Println("0.2.0-00")
+		fmt.Println(G.Version)
 		return nil
 	}
 
@@ -164,7 +164,7 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 				return
 			}
 
-			w.Write(pages.GenerateFolderPage(node, requestedPath))
+			w.Write(pages.GenerateFolderPage(node, requestedPath, G.Version))
 		} else {
 			// Serve the file using http.FileServer with the filesystem
 			contentType := mime.TypeByExtension(filepath.Ext(requestedPath))
@@ -194,8 +194,8 @@ func detectContentType(node *servfs.FsNode) (string, error) {
 func choosePort(port string) string {
 	portNum, err := strconv.Atoi(port)
 	if err != nil {
-		fmt.Printf("Warning: invalid port '%s', using default port %d\n", port, defaultPort)
-		portNum = defaultPort
+		fmt.Printf("Warning: invalid port '%s', using default port %d\n", port, DefaultPort)
+		portNum = DefaultPort
 	}
 
 	if isPortAvailable(portNum) {

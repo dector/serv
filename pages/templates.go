@@ -31,6 +31,7 @@ type DirectoryPageData struct {
 	BaseName     string
 	PathSegments []PathSegment
 	Entries      []DirectoryEntry
+	Version      string
 }
 
 const directoryTemplate = `<!DOCTYPE html>
@@ -58,11 +59,11 @@ const directoryTemplate = `<!DOCTYPE html>
     <h1>{{range $i, $segment := .PathSegments}}<a href="{{$segment.URL}}">{{if eq $segment.Name "."}}{{if $segment.IsLast}}/{{else}}/{{end}}{{else}}{{$segment.Name}}/{{end}}</a>{{end}}</h1>
     <ul>
 {{range .Entries}}        <li><a href="{{.Name}}{{.Suffix}}" class="{{.CSSClass}}">{{.Icon}} {{.Name}}{{.Suffix}}</a></li>
-{{end}}    </ul><div class="footer">served by <a href="https://github.com/dector/serv" target="_blank">serv</a></div>
+{{end}}    </ul><div class="footer">served by <a href="https://github.com/dector/serv" target="_blank">serv</a> {{.Version}}</div>
 </body>
 </html>`
 
-func GenerateFolderPage(node *fs.FsNode, relativePath string) []byte {
+func GenerateFolderPage(node *fs.FsNode, relativePath string, version string) []byte {
 	entries, err := os.ReadDir(node.Path)
 	if err != nil {
 		return []byte(fmt.Sprintf("<html><body><h1>Error reading directory</h1><p>%s</p></body></html>", err.Error()))
@@ -153,6 +154,7 @@ func GenerateFolderPage(node *fs.FsNode, relativePath string) []byte {
 		BaseName:     filepath.Base(displayPath),
 		PathSegments: pathSegments,
 		Entries:      dirEntries,
+		Version:      version,
 	}
 
 	tmpl, err := template.New("directory").Parse(directoryTemplate)
