@@ -60,6 +60,11 @@ func main() {
 				Value:   false,
 				Usage:   "Print version and exit",
 			},
+			&cli.BoolFlag{
+				Name:  "no-index-resolve",
+				Value: false,
+				Usage: "Disable automatic index.html resolution for directories",
+			},
 		},
 		Arguments: []cli.Argument{
 			&cli.StringArg{
@@ -151,7 +156,12 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		}
 
 		if fileInfo.IsDir() {
-			serveFolder(lw, requestedPath, fsys, fileInfo, rootFile)
+			resolveIndex := true
+			if cmd.Bool("no-index-resolve") {
+				resolveIndex = false
+			}
+
+			serveFolder(lw, requestedPath, fsys, fileInfo, rootFile, resolveIndex)
 		} else {
 			serveFile(lw, requestedPath, fsys)
 		}
@@ -161,17 +171,19 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 	return http.ListenAndServe(":"+port, nil)
 }
 
-func serveFolder(lw http.ResponseWriter, requestedPath string, fsys fs.FS, rootInfo fs.FileInfo, rootFile string) {
-	indexPath := path.Join(requestedPath, "index.html")
-	hasIndexHtml := func() bool {
-		if indexInfo, err := fs.Stat(fsys, indexPath); err == nil && !indexInfo.IsDir() {
-			return true
+func serveFolder(lw http.ResponseWriter, requestedPath string, fsys fs.FS, rootInfo fs.FileInfo, rootFile string, resolveIndex bool) {
+	if resolveIndex {
+		indexPath := path.Join(requestedPath, "index.html")
+		hasIndexHtml := func() bool {
+			if indexInfo, err := fs.Stat(fsys, indexPath); err == nil && !indexInfo.IsDir() {
+				return true
+			}
+			return false
+		}()
+		if hasIndexHtml {
+			serveFile(lw, indexPath, fsys)
+			return
 		}
-		return false
-	}()
-	if hasIndexHtml {
-		serveFile(lw, indexPath, fsys)
-		return
 	}
 
 	// For directories without index.html, we need to get the full path for the FsNode
