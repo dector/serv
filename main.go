@@ -4,15 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"math/rand/v2"
 	"mime"
-	"net"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
-	"strconv"
 
+	"github.com/dector/nettw"
 	servfs "github.com/dector/serv/fs"
 	"github.com/dector/serv/pages"
 	"github.com/pkg/errors"
@@ -88,9 +86,12 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	rootFile := cmd.StringArg("file")
-	port := choosePort(cmd.String("port"))
+	port, err := nettw.ParsePortOrPickAnother(cmd.String("port"))
+	if err != nil {
+		return err
+	}
 
-	rootFile, err := filepath.Abs(rootFile)
+	rootFile, err = filepath.Abs(rootFile)
 	if err != nil {
 		return errors.Wrap(err, "failed to get absolute path")
 	}
@@ -167,8 +168,8 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		}
 	})
 
-	fmt.Printf("Serving `%s` on http://localhost:%s\n", rootFile, port)
-	return http.ListenAndServe(":"+port, nil)
+	fmt.Printf("Serving `%s` on http://localhost:%s\n", rootFile, port.Str)
+	return http.ListenAndServe(":"+port.Str, nil)
 }
 
 func serveFolder(lw http.ResponseWriter, requestedPath string, fsys fs.FS, rootInfo fs.FileInfo, rootFile string, resolveIndex bool) {
@@ -227,48 +228,4 @@ func detectContentType(node *servfs.FsNode) (string, error) {
 	}
 
 	return mime.TypeByExtension(filepath.Ext(node.Path)), nil
-}
-
-func choosePort(port string) string {
-	portNum, err := strconv.Atoi(port)
-	if err != nil {
-		fmt.Printf("Warning: invalid port '%s', using default port %d\n", port, DefaultPort)
-		portNum = DefaultPort
-	}
-
-	if isPortAvailable(portNum) {
-		return fmt.Sprintf("%d", portNum)
-	}
-	fmt.Printf("Warning: port %d is busy, finding available port...\n", portNum)
-
-	// Try up to 100 random ports in the range 10000-20000
-	tried := make(map[int]struct{})
-
-	const minPort, maxPort = 10000, 20000
-	const maxAttempts = 100
-	for attemptsLeft := 100; attemptsLeft > 0; attemptsLeft-- {
-		randomPort := func() int {
-			return minPort + rand.IntN(maxPort-minPort+1)
-		}
-		p := randomPort()
-
-		if !isPortAvailable(p) {
-			tried[p] = struct{}{}
-			continue
-		}
-
-		return fmt.Sprintf("%d", p)
-	}
-
-	panic("no available ports found in range 10000-20000")
-}
-
-func isPortAvailable(port int) bool {
-	addr := fmt.Sprintf(":%d", port)
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return false
-	}
-	ln.Close()
-	return true
 }
