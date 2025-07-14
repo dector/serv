@@ -30,4 +30,4 @@ jobs:
           name: release-artifacts
           path: |
             out/release/checksums.txt
-            out/release/lampa-*
+            out/release/serv-*
