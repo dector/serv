@@ -12,32 +12,12 @@ import (
 
 	"github.com/dector/nettw"
 	servfs "github.com/dector/serv/fs"
+	"github.com/dector/serv/middleware"
 	"github.com/dector/serv/pages"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v3"
 )
 
-type loggingResponseWriter struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-func (lw *loggingResponseWriter) WriteHeader(code int) {
-	lw.statusCode = code
-	lw.ResponseWriter.WriteHeader(code)
-}
-
-func logRequest(method string, statusCode int, path string) {
-	var color string
-	if statusCode >= 200 && statusCode < 400 {
-		color = "\033[48;5;22m" // Dark green background
-	} else {
-		color = "\033[48;5;52m" // Dark red background
-	}
-	reset := "\033[0m"
-
-	fmt.Printf("%s %s %s %d %s\n", color, method, reset, statusCode, path)
-}
 
 func main() {
 	G.Init()
@@ -119,11 +99,7 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		basePath = filepath.Base(rootFile)
 	}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		lw := &loggingResponseWriter{ResponseWriter: w, statusCode: 200}
-		defer func() {
-			logRequest(r.Method, lw.statusCode, r.URL.Path)
-		}()
+	http.HandleFunc("/", middleware.WithLogging(func(w http.ResponseWriter, r *http.Request) {
 		// Clean the URL path and handle root requests
 		requestedPath := path.Clean(r.URL.Path)
 		if requestedPath == "/" {
@@ -135,8 +111,7 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 			} else {
 				// If serving a single file, only allow requests to that file
 				if requestedPath != "/"+filepath.Base(rootFile) && requestedPath != "/" {
-					lw.statusCode = 404
-					http.NotFound(lw, r)
+					http.NotFound(w, r)
 					return
 				}
 				requestedPath = basePath
@@ -147,12 +122,10 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		fileInfo, err := fs.Stat(fsys, requestedPath)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
-				lw.statusCode = 404
-				http.NotFound(lw, r)
+				http.NotFound(w, r)
 				return
 			}
-			lw.statusCode = 500
-			http.Error(lw, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -162,11 +135,11 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 				resolveIndex = false
 			}
 
-			serveFolder(lw, requestedPath, fsys, fileInfo, rootFile, resolveIndex)
+			serveFolder(w, requestedPath, fsys, fileInfo, rootFile, resolveIndex)
 		} else {
-			serveFile(lw, requestedPath, fsys)
+			serveFile(w, requestedPath, fsys)
 		}
-	})
+	}))
 
 	fmt.Printf("Serving `%s` on http://localhost:%s\n", rootFile, port.Str)
 	return http.ListenAndServe(":"+port.Str, nil)
@@ -195,10 +168,6 @@ func serveFolder(lw http.ResponseWriter, requestedPath string, fsys fs.FS, rootI
 
 	node, err := servfs.GetFsNode(fullPath)
 	if err != nil {
-		// Set status code to 500 if possible
-		if lw, ok := lw.(*loggingResponseWriter); ok {
-			lw.statusCode = 500
-		}
 		http.Error(lw, err.Error(), http.StatusInternalServerError)
 		return
 	}
