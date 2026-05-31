@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/dector/nettw"
 	servfs "github.com/dector/serv/fs"
@@ -18,6 +19,13 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+const servBanner = `
+███████╗███████╗██████╗ ██╗   ██╗
+██╔════╝██╔════╝██╔══██╗██║   ██║
+███████╗█████╗  ██████╔╝██║   ██║
+╚════██║██╔══╝  ██╔══██╗╚██╗ ██╔╝
+███████║███████╗██║  ██║ ╚████╔╝
+╚══════╝╚══════╝╚═╝  ╚═╝  ╚═══╝`
 
 func main() {
 	G.Init()
@@ -57,6 +65,18 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %+v\n", err)
 		os.Exit(1)
 	}
+}
+
+func printBanner(version string) {
+	lines := strings.Split(servBanner, "\n")
+	if len(lines) == 0 {
+		return
+	}
+
+	if len(lines) > 1 {
+		fmt.Println(strings.Join(lines[:len(lines)-1], "\n"))
+	}
+	fmt.Printf("%s    v. %s\n\n", lines[len(lines)-1], version)
 }
 
 func serveAction(ctx context.Context, cmd *cli.Command) error {
@@ -141,7 +161,9 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		}
 	}))
 
-	fmt.Printf("Serving `%s` on http://localhost:%s\n", rootFile, port.Str)
+	printBanner(G.Version)
+	fmt.Printf("● serving %s\n", rootFile)
+	fmt.Printf("  http://localhost:%s\n", port.Str)
 	return http.ListenAndServe(":"+port.Str, nil)
 }
 
