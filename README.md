@@ -7,8 +7,7 @@ Serve file or folder as a web-page.
 ## Install
 
 ``` shell
-mise install ubi:dector/serve
-mise use -g ubi:dector/serve
+mise install github:dector/serve
 serve --version
 ```
 
@@ -21,10 +20,23 @@ serv Downloads
 
 Default port: `8080`.
 
-To use port - pass `--port`/`-p`:
+To use a specific port, pass `--port`/`-p`:
 
 ``` shell
 serv -p 3000 README.md
+```
+
+If the requested port is unavailable, `serv` automatically picks another free port.
+
+## Behavior
+
+- You can serve either a directory or a single file.
+- If a requested directory contains `index.html`, it is served automatically.
+- If no `index.html` is found, `serv` renders a directory listing page.
+- Use `--no-index-resolve` to disable automatic `index.html` resolution in directories.
+
+``` shell
+serv --no-index-resolve Downloads
 ```
 
 # License
