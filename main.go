@@ -86,18 +86,18 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	rootFile := cmd.StringArg("file")
-	port, err := nettw.ParsePortOrPickAnother(cmd.String("port"))
-	if err != nil {
-		return err
-	}
-
-	rootFile, err = filepath.Abs(rootFile)
+	rootFile, err := filepath.Abs(rootFile)
 	if err != nil {
 		return errors.Wrap(err, "failed to get absolute path")
 	}
 
 	if _, err := os.Stat(rootFile); os.IsNotExist(err) {
 		return errors.Errorf("file does not exist: %s", rootFile)
+	}
+
+	port, err := nettw.ParsePortOrPickAnother(cmd.String("port"), nettw.WithSeed(rootFile))
+	if err != nil {
+		return err
 	}
 
 	// Create filesystem rooted at the specified directory or file's parent
