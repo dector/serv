@@ -17,6 +17,7 @@ import (
 	"github.com/dector/serv/pages"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v3"
+	"golang.org/x/term"
 )
 
 const servBanner = `
@@ -67,16 +68,72 @@ func main() {
 	}
 }
 
-func printBanner(version string) {
+const (
+	ansiReset      = "\x1b[0m"
+	ansiBold       = "\x1b[1m"
+	ansiGreen      = "\x1b[32m"
+	ansiMutedGreen = "\x1b[38;5;65m"
+	ansiBrightCyan = "\x1b[96m"
+	ansiWhite      = "\x1b[37m"
+	ansiUnderline  = "\x1b[4m"
+)
+
+func shouldUseColor(stdoutIsTerminal bool, lookupEnv func(string) (string, bool)) bool {
+	if _, ok := lookupEnv("NO_COLOR"); ok {
+		return false
+	}
+	if termValue, ok := lookupEnv("TERM"); ok && termValue == "dumb" {
+		return false
+	}
+	if forceColor, ok := lookupEnv("FORCE_COLOR"); ok && forceColor != "" && forceColor != "0" {
+		return true
+	}
+	return stdoutIsTerminal
+}
+
+func colorize(value string, codes ...string) string {
+	return strings.Join(codes, "") + value + ansiReset
+}
+
+func printBanner(version string, useColor bool) {
 	lines := strings.Split(servBanner, "\n")
 	if len(lines) == 0 {
 		return
 	}
 
 	if len(lines) > 1 {
-		fmt.Println(strings.Join(lines[:len(lines)-1], "\n"))
+		bannerHead := strings.Join(lines[:len(lines)-1], "\n")
+		if useColor {
+			bannerHead = colorize(bannerHead, ansiMutedGreen)
+		}
+		fmt.Println(bannerHead)
 	}
-	fmt.Printf("%s    v. %s\n\n", lines[len(lines)-1], version)
+
+	bannerTail := lines[len(lines)-1]
+	versionText := fmt.Sprintf("v. %s", version)
+	if useColor {
+		bannerTail = colorize(bannerTail, ansiMutedGreen)
+		versionText = colorize(versionText, ansiWhite)
+	}
+	fmt.Printf("%s    %s\n\n", bannerTail, versionText)
+}
+
+func printLaunchInfo(version, rootFile, port string) {
+	useColor := shouldUseColor(term.IsTerminal(int(os.Stdout.Fd())), os.LookupEnv)
+
+	printBanner(version, useColor)
+
+	bullet := "●"
+	pathText := rootFile
+	urlText := fmt.Sprintf("http://localhost:%s", port)
+	if useColor {
+		bullet = colorize(bullet, ansiGreen)
+		pathText = colorize(pathText, ansiBold)
+		urlText = colorize(urlText, ansiBrightCyan, ansiUnderline)
+	}
+
+	fmt.Printf("%s serving %s\n", bullet, pathText)
+	fmt.Printf("  %s\n", urlText)
 }
 
 func serveAction(ctx context.Context, cmd *cli.Command) error {
@@ -161,9 +218,7 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		}
 	}))
 
-	printBanner(G.Version)
-	fmt.Printf("● serving %s\n", rootFile)
-	fmt.Printf("  http://localhost:%s\n", port.Str)
+	printLaunchInfo(G.Version, rootFile, port.Str)
 	return http.ListenAndServe(":"+port.Str, nil)
 }
 
