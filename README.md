@@ -28,6 +28,15 @@ serv -p 3000 README.md
 
 If the requested port is unavailable, `serv` automatically picks another free port.
 
+To open the served URL in your default browser, pass `--browser`/`-B`:
+
+``` shell
+serv -B README.md
+serv -B -p 3000 Downloads
+```
+
+Browser opening is best-effort; if it fails, the server keeps running and prints the URL.
+
 ## Preview Markdown
 
 Use `--preview`/`-P` to render supported Markdown files (`.md`, `.markdown`, `.mdown`, `.mkd`) as self-contained dark HTML pages:

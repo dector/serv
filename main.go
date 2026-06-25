@@ -6,11 +6,15 @@ import (
 	"html"
 	"io/fs"
 	"mime"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/dector/nettw"
 	servfs "github.com/dector/serv/fs"
@@ -59,6 +63,12 @@ func main() {
 				Aliases: []string{"P"},
 				Value:   false,
 				Usage:   "Render supported files as styled HTML previews",
+			},
+			&cli.BoolFlag{
+				Name:    "browser",
+				Aliases: []string{"B"},
+				Value:   false,
+				Usage:   "Open served URL in the default browser",
 			},
 		},
 		Arguments: []cli.Argument{
@@ -124,6 +134,55 @@ func printBanner(version string, useColor bool) {
 		versionText = colorize(versionText, ansiWhite)
 	}
 	fmt.Printf("%s    %s\n\n", bannerTail, versionText)
+}
+
+func browserCommand(goos, url string) (string, []string, bool) {
+	switch goos {
+	case "linux":
+		return "xdg-open", []string{url}, true
+	case "darwin":
+		return "open", []string{url}, true
+	case "windows":
+		return "rundll32", []string{"url.dll,FileProtocolHandler", url}, true
+	default:
+		return "", nil, false
+	}
+}
+
+func openBrowser(url string) error {
+	name, args, ok := browserCommand(runtime.GOOS, url)
+	if !ok {
+		return errors.Errorf("opening browser is not supported on %s", runtime.GOOS)
+	}
+	return exec.Command(name, args...).Start()
+}
+
+func waitForTCP(addr string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+
+		if time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func openBrowserWhenReady(port, url string) {
+	go func() {
+		if err := waitForTCP(net.JoinHostPort("127.0.0.1", port), 2*time.Second); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: server did not become ready for browser launch: %v\n", err)
+			return
+		}
+		if err := openBrowser(url); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to open browser: %v\n", err)
+		}
+	}()
 }
 
 func printLaunchInfo(version, rootFile, port string) {
@@ -227,6 +286,9 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 	}))
 
 	printLaunchInfo(G.Version, rootFile, port.Str)
+	if cmd.Bool("browser") {
+		openBrowserWhenReady(port.Str, fmt.Sprintf("http://localhost:%s", port.Str))
+	}
 	return http.ListenAndServe(":"+port.Str, nil)
 }
 
