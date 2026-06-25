@@ -1,0 +1,161 @@
+#!/usr/bin/env amber
+// 2> /dev/null; exit 1
+
+import { file_read, file_write } from "std/fs"
+import { match_regex, parse_int, replace_regex, split } from "std/text"
+
+const manifest = "xx.yml"
+
+fun die(message: Text) {
+    trust $ printf '%s\n' "{message}" >&2 $
+    fail 1
+}
+
+fun command_output(command: Text): Text? {
+    const output = $ bash -c "{command}" $ failed {
+        die("Command failed: {command}")?
+    }
+    return output
+}
+
+fun ensure_clean_worktree() {
+    const changes = command_output("git status --porcelain")?
+    if changes != "" {
+        $ git status --short >&2 $ failed {
+            die("Failed to show git status")?
+        }
+        die("Refusing to mark a release with uncommitted changes.")?
+    }
+}
+
+fun read_manifest_version(): Text? {
+    const content = file_read(manifest)?
+    const version = replace_regex(content, "^version: \\\"([^\\\"]+)\\\"[[:space:]]*$", "\\1", true)
+    if version == content {
+        die("Failed to read version from {manifest}")?
+    }
+    return version
+}
+
+fun latest_release_version(): Text? {
+    const latest_tag = command_output("git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1")?
+    if latest_tag == "" {
+        return "0.0.0"
+    }
+    return replace_regex(latest_tag, "^v", "", true)
+}
+
+fun parse_version_core(version: Text): [Int]? {
+    const core = replace_regex(version, "-.*$", "", true)
+    if match_regex(core, "^[0-9]+\\.[0-9]+\\.[0-9]+$", true) == false {
+        die("Version '{version}' is not a plain semver version.")?
+    }
+
+    const parts = split(core, ".")
+    return [parse_int(parts[0])?, parse_int(parts[1])?, parse_int(parts[2])?]
+}
+
+fun tag_exists(tag: Text): Bool {
+    silent trust $ git rev-parse -q --verify refs/tags/{tag} $
+    return status() == 0
+}
+
+fun prompt(message: Text): Text? {
+    return $ printf '%s' "{message}" >&2; head -n1 $ failed {
+        die("Failed to read input")?
+    }
+}
+
+main {
+    ensure_clean_worktree()?
+
+    const current_version = read_manifest_version()?
+    const latest_version = latest_release_version()?
+    const version_parts = parse_version_core(latest_version)?
+
+    const major = version_parts[0]
+    const minor = version_parts[1]
+    const patch = version_parts[2]
+
+    const patch_version = "{major}.{minor}.{patch + 1}"
+    const minor_version = "{major}.{minor + 1}.0"
+    const major_version = "{major + 1}.0.0"
+
+    echo("Current manifest version: {current_version}")
+    echo("Latest release version:   {latest_version}")
+    echo("")
+    echo("Suggested next versions:")
+    echo("  (p)atch: {patch_version}")
+    echo("  (m)inor: {minor_version}")
+    echo("  majo(r): {major_version}")
+
+    const choice = prompt("Choose semver increment [(p)atch/(m)inor/majo(r)]: ")?
+
+    let new_version = "UNSET"
+    if {
+        choice == "p" {
+            new_version = patch_version
+        }
+        choice == "patch" {
+            new_version = patch_version
+        }
+        choice == "m" {
+            new_version = minor_version
+        }
+        choice == "minor" {
+            new_version = minor_version
+        }
+        choice == "r" {
+            new_version = major_version
+        }
+        choice == "major" {
+            new_version = major_version
+        }
+        else {
+            die("Unknown choice '{choice}'. Use p, m, or r.")?
+        }
+    }
+
+    const new_tag = "v{new_version}"
+    if tag_exists(new_tag) {
+        die("Tag {new_tag} already exists.")?
+    }
+
+    const expected_snapshot = "{new_version}-snapshot"
+    if current_version != expected_snapshot {
+        if current_version != new_version {
+            const continue_choice = prompt("Manifest version is '{current_version}', not '{expected_snapshot}'. Continue? [y/N]: ")?
+            if {
+                continue_choice == "y" {
+                    echo("Continuing.")
+                }
+                continue_choice == "Y" {
+                    echo("Continuing.")
+                }
+                continue_choice == "yes" {
+                    echo("Continuing.")
+                }
+                continue_choice == "YES" {
+                    echo("Continuing.")
+                }
+                else {
+                    echo("Aborted.")
+                    fail 1
+                }
+            }
+        }
+    }
+
+    file_write(manifest, "version: \"{new_version}\"\n")?
+    $ git add {manifest} $?
+    $ git commit -m "chore: release {new_version}" $?
+    $ git tag --no-sign {new_tag} $?
+
+    echo("")
+    echo("Marked release {new_version}.")
+    echo("Created commit: chore: release {new_version}")
+    echo("Created tag:    {new_tag}")
+    echo("")
+    echo("Push with:")
+    echo("  git push origin HEAD {new_tag}")
+}

@@ -6,6 +6,10 @@ tasks:
       - go run . {{.CLI_ARGS}}
     silent: true
 
+  tools:mark-release:
+    cmds:
+      - amber run tools/mark-release
+
   build:all:
     # deps:
     #   - gen
