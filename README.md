@@ -28,6 +28,17 @@ serv -p 3000 README.md
 
 If the requested port is unavailable, `serv` automatically picks another free port.
 
+## Preview Markdown
+
+Use `--preview`/`-P` to render supported Markdown files (`.md`, `.markdown`, `.mdown`, `.mkd`) as self-contained dark HTML pages:
+
+``` shell
+serv --preview README.md
+serv -P docs/
+```
+
+Without `--preview`/`-P`, Markdown and all other files are served raw as before. In directory mode, listings stay unchanged; clicking a supported Markdown file opens the rendered preview. Unsupported files fall back to raw serving.
+
 ## Behavior
 
 - You can serve either a directory or a single file.

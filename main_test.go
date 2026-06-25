@@ -1,6 +1,13 @@
 package main
 
-import "testing"
+import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"testing/fstest"
+)
 
 func TestShouldUseColor(t *testing.T) {
 	tests := []struct {
@@ -67,5 +74,52 @@ func TestShouldUseColor(t *testing.T) {
 				t.Fatalf("shouldUseColor() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestServeFileDefaultRawMarkdown(t *testing.T) {
+	fsys := fstest.MapFS{"README.md": &fstest.MapFile{Data: []byte("# Title")}}
+	r := httptest.NewRequest(http.MethodGet, "/README.md", nil)
+	w := httptest.NewRecorder()
+
+	serveFile(w, r, "README.md", fsys, false)
+
+	res := w.Result()
+	body, _ := io.ReadAll(res.Body)
+	if got := string(body); got != "# Title" {
+		t.Fatalf("body = %q, want raw markdown", got)
+	}
+	if strings.Contains(string(body), "<h1>") {
+		t.Fatalf("body rendered unexpectedly: %s", body)
+	}
+}
+
+func TestServeFilePreviewMarkdown(t *testing.T) {
+	fsys := fstest.MapFS{"README.md": &fstest.MapFile{Data: []byte("# Title")}}
+	r := httptest.NewRequest(http.MethodGet, "/README.md", nil)
+	w := httptest.NewRecorder()
+
+	serveFile(w, r, "README.md", fsys, true)
+
+	res := w.Result()
+	body, _ := io.ReadAll(res.Body)
+	if got := res.Header.Get("Content-Type"); got != "text/html; charset=utf-8" {
+		t.Fatalf("Content-Type = %q, want text/html; charset=utf-8", got)
+	}
+	if !strings.Contains(string(body), "<h1>Title</h1>") || !strings.Contains(string(body), "served by serv") {
+		t.Fatalf("body did not contain rendered markdown page: %s", body)
+	}
+}
+
+func TestServeFilePreviewUnsupportedRaw(t *testing.T) {
+	fsys := fstest.MapFS{"plain.txt": &fstest.MapFile{Data: []byte("hello")}}
+	r := httptest.NewRequest(http.MethodGet, "/plain.txt", nil)
+	w := httptest.NewRecorder()
+
+	serveFile(w, r, "plain.txt", fsys, true)
+
+	body, _ := io.ReadAll(w.Result().Body)
+	if got := string(body); got != "hello" {
+		t.Fatalf("body = %q, want raw text", got)
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"html"
 	"io/fs"
 	"mime"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	servfs "github.com/dector/serv/fs"
 	"github.com/dector/serv/middleware"
 	"github.com/dector/serv/pages"
+	"github.com/dector/serv/preview"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v3"
 	"golang.org/x/term"
@@ -51,6 +53,12 @@ func main() {
 				Name:  "no-index-resolve",
 				Value: false,
 				Usage: "Disable automatic index.html resolution for directories",
+			},
+			&cli.BoolFlag{
+				Name:    "preview",
+				Aliases: []string{"P"},
+				Value:   false,
+				Usage:   "Render supported files as styled HTML previews",
 			},
 		},
 		Arguments: []cli.Argument{
@@ -212,9 +220,9 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 				resolveIndex = false
 			}
 
-			serveFolder(w, requestedPath, fsys, fileInfo, rootFile, resolveIndex)
+			serveFolder(w, r, requestedPath, fsys, fileInfo, rootFile, resolveIndex, cmd.Bool("preview"))
 		} else {
-			serveFile(w, requestedPath, fsys)
+			serveFile(w, r, requestedPath, fsys, cmd.Bool("preview"))
 		}
 	}))
 
@@ -222,7 +230,7 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 	return http.ListenAndServe(":"+port.Str, nil)
 }
 
-func serveFolder(lw http.ResponseWriter, requestedPath string, fsys fs.FS, rootInfo fs.FileInfo, rootFile string, resolveIndex bool) {
+func serveFolder(lw http.ResponseWriter, r *http.Request, requestedPath string, fsys fs.FS, rootInfo fs.FileInfo, rootFile string, resolveIndex bool, previewMode bool) {
 	if resolveIndex {
 		indexPath := path.Join(requestedPath, "index.html")
 		hasIndexHtml := func() bool {
@@ -232,11 +240,12 @@ func serveFolder(lw http.ResponseWriter, requestedPath string, fsys fs.FS, rootI
 			return false
 		}()
 		if hasIndexHtml {
-			serveFile(lw, indexPath, fsys)
+			serveFile(lw, r, indexPath, fsys, previewMode)
 			return
 		}
 	}
 
+	// Future: directory README preview fallback could be added later.
 	// For directories without index.html, we need to get the full path for the FsNode
 	fullPath := filepath.Join(rootFile, requestedPath)
 	if !rootInfo.IsDir() {
@@ -252,20 +261,46 @@ func serveFolder(lw http.ResponseWriter, requestedPath string, fsys fs.FS, rootI
 	lw.Write(pages.GenerateFolderPage(node, requestedPath, G.Version))
 }
 
-func serveFile(lw http.ResponseWriter, requestedPath string, fsys fs.FS) {
-	// Serve the file using http.FileServer with the filesystem
-	contentType := mime.TypeByExtension(filepath.Ext(requestedPath))
-	if contentType != "" {
-		lw.Header().Set("Content-Type", contentType)
-	}
-
+func serveFile(lw http.ResponseWriter, r *http.Request, requestedPath string, fsys fs.FS, previewMode bool) {
 	content, err := fs.ReadFile(fsys, requestedPath)
 	if err != nil {
 		http.Error(lw, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	if previewMode && preview.CanPreview(requestedPath) {
+		// Future: raw access via ?raw / ?raw=1 could be added later.
+		rendered, err := preview.Render(requestedPath, content)
+		if err != nil {
+			servePreviewError(lw, r, err)
+			return
+		}
+		lw.Header().Set("Content-Type", "text/html; charset=utf-8")
+		lw.Write(rendered)
+		return
+	}
+
+	// Serve the file using MIME-by-extension behavior for raw responses.
+	contentType := mime.TypeByExtension(filepath.Ext(requestedPath))
+	if contentType != "" {
+		lw.Header().Set("Content-Type", contentType)
+	}
 	lw.Write(content)
+}
+
+func servePreviewError(lw http.ResponseWriter, r *http.Request, renderErr error) {
+	rawURL := "?raw"
+	if r != nil && r.URL != nil {
+		currentURL := r.URL.String()
+		separator := "?"
+		if r.URL.RawQuery != "" {
+			separator = "&"
+		}
+		rawURL = currentURL + separator + "raw"
+	}
+	lw.Header().Set("Content-Type", "text/html; charset=utf-8")
+	lw.WriteHeader(http.StatusInternalServerError)
+	fmt.Fprintf(lw, "<!doctype html><html><head><meta charset=\"utf-8\"><title>Preview error</title></head><body><h1>Preview error</h1><p>%s</p><p><a href=\"%s\">View raw file</a></p></body></html>", html.EscapeString(renderErr.Error()), html.EscapeString(rawURL))
 }
 
 func detectContentType(node *servfs.FsNode) (string, error) {
