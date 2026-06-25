@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dector/serv/internal/theme"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 )
@@ -61,6 +62,7 @@ func (MarkdownRenderer) Render(name string, content []byte) ([]byte, error) {
 	if err := pageTemplate.Execute(&page, pageData{
 		Title: filepath.Base(name),
 		Body:  template.HTML(body.String()),
+		Theme: theme.Dark,
 	}); err != nil {
 		return nil, err
 	}
@@ -70,6 +72,7 @@ func (MarkdownRenderer) Render(name string, content []byte) ([]byte, error) {
 type pageData struct {
 	Title string
 	Body  template.HTML
+	Theme theme.Colors
 }
 
 var pageTemplate = template.Must(template.New("preview").Parse(`<!doctype html>
@@ -79,7 +82,7 @@ var pageTemplate = template.Must(template.New("preview").Parse(`<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}}</title>
 <style>
-:root{color-scheme:dark;--bg:#0d1117;--panel:#161b22;--text:#e6edf3;--muted:#8b949e;--border:#30363d;--accent:#58a6ff;--code:#010409}
+:root{color-scheme:dark;--bg:{{.Theme.Background}};--panel:{{.Theme.Panel}};--text:{{.Theme.Text}};--muted:{{.Theme.Muted}};--border:{{.Theme.Border}};--accent:{{.Theme.Accent}};--code:{{.Theme.Code}}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.topbar,.footer{background:var(--panel);border-color:var(--border);color:var(--muted)}.topbar{border-bottom:1px solid var(--border);padding:12px 24px;font-weight:600}.footer{border-top:1px solid var(--border);padding:16px 24px;text-align:center}.content{max-width:920px;margin:0 auto;padding:32px 24px 56px}a{color:var(--accent)}h1,h2,h3,h4,h5,h6{line-height:1.25;margin:1.5em 0 .6em}h1,h2{border-bottom:1px solid var(--border);padding-bottom:.3em}p,ul,ol,blockquote,pre,table{margin:0 0 1em}blockquote{border-left:4px solid var(--border);color:var(--muted);padding:0 1em}code{background:rgba(110,118,129,.28);border-radius:6px;padding:.2em .4em;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}pre{background:var(--code);border:1px solid var(--border);border-radius:8px;overflow:auto;padding:16px}pre code{background:transparent;padding:0}table{border-collapse:collapse;width:100%;display:block;overflow:auto}th,td{border:1px solid var(--border);padding:6px 13px}th{background:var(--panel)}img{max-width:100%}hr{border:0;border-top:1px solid var(--border);margin:24px 0}.task-list-item{list-style-type:none}.task-list-item input{margin:0 .5em 0 -1.4em}
 </style>
 </head>

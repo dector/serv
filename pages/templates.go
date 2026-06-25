@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/dector/serv/fs"
+	"github.com/dector/serv/internal/theme"
 )
 
 type DirectoryEntry struct {
@@ -32,6 +33,7 @@ type DirectoryPageData struct {
 	PathSegments []PathSegment
 	Entries      []DirectoryEntry
 	Version      string
+	Theme        theme.Colors
 }
 
 const directoryTemplate = `<!DOCTYPE html>
@@ -39,20 +41,21 @@ const directoryTemplate = `<!DOCTYPE html>
 <head>
     <title>{{.Path}}</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 40px; }
-        h1 { color: #333; display: flex; align-items: center; gap: 8px; }
-        h1 a { text-decoration: none; color: #0066cc; }
+        :root { color-scheme: dark; --bg: {{.Theme.Background}}; --panel: {{.Theme.Panel}}; --text: {{.Theme.Text}}; --muted: {{.Theme.Muted}}; --border: {{.Theme.Border}}; --accent: {{.Theme.Accent}}; }
+        body { font-family: Arial, sans-serif; margin: 40px; background: var(--bg); color: var(--text); }
+        h1 { color: var(--text); display: flex; align-items: center; gap: 8px; }
+        h1 a { text-decoration: none; color: var(--accent); }
         h1 a:hover { text-decoration: underline; }
         h1 a:first-child { padding-left: 20px; }
-        h1 .separator { margin: 0 2px; color: #666; }
+        h1 .separator { margin: 0 2px; color: var(--muted); }
         ul { list-style-type: none; padding: 0; }
         li { margin: 5px 0; display: flex; align-items: center; }
-        a { text-decoration: none; color: #0066cc; display: flex; align-items: center; gap: 8px; }
+        a { text-decoration: none; color: var(--accent); display: flex; align-items: center; gap: 8px; }
         a:hover { text-decoration: underline; }
         .dir { font-weight: bold; }
-        .file { color: #666; }
+        .file { color: var(--muted); }
         .icon { width: 16px; height: 16px; }
-        .footer { margin-top: 40px; color: #666; font-size: 14px; } .footer a { color: #0066cc; text-decoration: none; display: inline-block; } .footer a:hover { text-decoration: underline; }
+        .footer { margin-top: 40px; color: var(--muted); font-size: 14px; } .footer a { color: var(--accent); text-decoration: none; display: inline-block; } .footer a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -155,6 +158,7 @@ func GenerateFolderPage(node *fs.FsNode, relativePath string, version string) []
 		PathSegments: pathSegments,
 		Entries:      dirEntries,
 		Version:      version,
+		Theme:        theme.Dark,
 	}
 
 	tmpl, err := template.New("directory").Parse(directoryTemplate)
