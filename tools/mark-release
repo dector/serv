@@ -60,8 +60,34 @@ fun tag_exists(tag: Text): Bool {
     return status() == 0
 }
 
+fun choose_version(choice: Text, patch_version: Text, minor_version: Text, major_version: Text): Text? {
+    if {
+        choice == "p" {
+            return patch_version
+        }
+        choice == "patch" {
+            return patch_version
+        }
+        choice == "m" {
+            return minor_version
+        }
+        choice == "minor" {
+            return minor_version
+        }
+        choice == "r" {
+            return major_version
+        }
+        choice == "major" {
+            return major_version
+        }
+        else {
+            die("Unknown choice '{choice}'. Use p, m, or r.")?
+        }
+    }
+}
+
 fun prompt(message: Text): Text? {
-    return $ printf '%s' "{message}" >&2; head -n1 $ failed {
+    return $ printf '%s' "{message}" >&2; read -r value; export value; printenv value $ failed {
         die("Failed to read input")?
     }
 }
@@ -89,32 +115,26 @@ main {
     echo("  (m)inor: {minor_version}")
     echo("  majo(r): {major_version}")
 
-    const choice = prompt("Choose semver increment [(p)atch/(m)inor/majo(r)]: ")?
+    const choice = prompt("Choose release semver increment [(p)atch/(m)inor/majo(r)]: ")?
+    const new_version = choose_version(choice, patch_version, minor_version, major_version)?
 
-    let new_version = "UNSET"
-    if {
-        choice == "p" {
-            new_version = patch_version
-        }
-        choice == "patch" {
-            new_version = patch_version
-        }
-        choice == "m" {
-            new_version = minor_version
-        }
-        choice == "minor" {
-            new_version = minor_version
-        }
-        choice == "r" {
-            new_version = major_version
-        }
-        choice == "major" {
-            new_version = major_version
-        }
-        else {
-            die("Unknown choice '{choice}'. Use p, m, or r.")?
-        }
-    }
+    const release_parts = parse_version_core(new_version)?
+    const release_major = release_parts[0]
+    const release_minor = release_parts[1]
+    const release_patch = release_parts[2]
+
+    const snapshot_patch_version = "{release_major}.{release_minor}.{release_patch + 1}-snapshot"
+    const snapshot_minor_version = "{release_major}.{release_minor + 1}.0-snapshot"
+    const snapshot_major_version = "{release_major + 1}.0.0-snapshot"
+
+    echo("")
+    echo("Suggested next snapshots:")
+    echo("  (p)atch: {snapshot_patch_version}")
+    echo("  (m)inor: {snapshot_minor_version}")
+    echo("  majo(r): {snapshot_major_version}")
+
+    const snapshot_choice = prompt("Choose next snapshot semver increment [(p)atch/(m)inor/majo(r)]: ")?
+    const next_snapshot = choose_version(snapshot_choice, snapshot_patch_version, snapshot_minor_version, snapshot_major_version)?
 
     const new_tag = "v{new_version}"
     if tag_exists(new_tag) {
@@ -151,10 +171,15 @@ main {
     $ git commit -m "chore: release {new_version}" $?
     $ git tag --no-sign {new_tag} $?
 
+    file_write(manifest, "version: \"{next_snapshot}\"\n")?
+    $ git add {manifest} $?
+    $ git commit -m "chore: start {next_snapshot}" $?
+
     echo("")
     echo("Marked release {new_version}.")
     echo("Created commit: chore: release {new_version}")
     echo("Created tag:    {new_tag}")
+    echo("Created commit: chore: start {next_snapshot}")
     echo("")
     echo("Push with:")
     echo("  git push origin HEAD {new_tag}")
