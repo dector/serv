@@ -65,10 +65,17 @@ func main() {
 				Usage:   "Render supported files as styled HTML previews",
 			},
 			&cli.BoolFlag{
+				Name:    "open",
+				Aliases: []string{"o"},
+				Value:   false,
+				Usage:   "Open the served URL in the default browser",
+			},
+			&cli.BoolFlag{
 				Name:    "browser",
 				Aliases: []string{"B"},
 				Value:   false,
-				Usage:   "Open served URL in the default browser",
+				Hidden:  true,
+				Usage:   "Deprecated: use --open/-o instead",
 			},
 		},
 		Arguments: []cli.Argument{
@@ -185,6 +192,10 @@ func openBrowserWhenReady(port, url string) {
 	}()
 }
 
+func servedURL(port string) string {
+	return fmt.Sprintf("http://localhost:%s", port)
+}
+
 func printLaunchInfo(version, rootFile, port string) {
 	useColor := shouldUseColor(term.IsTerminal(int(os.Stdout.Fd())), os.LookupEnv)
 
@@ -192,7 +203,7 @@ func printLaunchInfo(version, rootFile, port string) {
 
 	bullet := "●"
 	pathText := rootFile
-	urlText := fmt.Sprintf("http://localhost:%s", port)
+	urlText := servedURL(port)
 	if useColor {
 		bullet = colorize(bullet, ansiGreen)
 		pathText = colorize(pathText, ansiBold)
@@ -285,9 +296,13 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		}
 	}))
 
-	printLaunchInfo(G.Version, rootFile, port.Str)
 	if cmd.Bool("browser") {
-		openBrowserWhenReady(port.Str, fmt.Sprintf("http://localhost:%s", port.Str))
+		fmt.Fprintln(os.Stderr, "Warning: --browser/-B is deprecated and will be removed in a future release. Use --open/-o instead.")
+	}
+
+	printLaunchInfo(G.Version, rootFile, port.Str)
+	if cmd.Bool("open") || cmd.Bool("browser") {
+		openBrowserWhenReady(port.Str, servedURL(port.Str))
 	}
 	return http.ListenAndServe(":"+port.Str, nil)
 }

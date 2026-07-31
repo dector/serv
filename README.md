@@ -28,11 +28,13 @@ serv -p 3000 README.md
 
 If the requested port is unavailable, `serv` automatically picks another free port.
 
-To open the served URL in your default browser, pass `--browser`/`-B`:
+## Open in browser
+
+Use `--open`/`-o` to open the served URL in your default browser after the server starts:
 
 ``` shell
-serv -B README.md
-serv -B -p 3000 Downloads
+serv --open README.md
+serv -o Downloads
 ```
 
 Browser opening is best-effort; if it fails, the server keeps running and prints the URL.

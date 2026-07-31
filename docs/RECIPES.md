@@ -37,6 +37,17 @@ serv -p 3000 Downloads
 
 If that port is busy, `serv` will automatically pick another free port.
 
+## Open the served URL in your browser
+
+```sh
+serv --open README.md
+# or
+serv -o Downloads
+```
+
+`--open`/`-o` opens the served URL in your default browser after the server starts.
+Browser opening is best-effort; if it fails, the server keeps running and prints the URL.
+
 ## Serve a directory
 
 ```sh
