@@ -41,27 +41,52 @@ serv -o Downloads
 
 Browser opening is best-effort; if it fails, the server keeps running and prints the URL.
 
-## Preview Markdown
+## Serving modes
 
-Use `--preview`/`-P` to render supported Markdown files (`.md`, `.markdown`, `.mdown`, `.mkd`) as self-contained dark HTML pages:
+`serv` defaults to preview mode, optimized for reading repos and websites:
 
 ``` shell
-serv --preview README.md
-serv -P docs/
+serv .
+serv README.md
 ```
 
-Without `--preview`/`-P`, Markdown and all other files are served raw as before. In directory mode, listings stay unchanged; clicking a supported Markdown file opens the rendered preview. Unsupported files fall back to raw serving.
+In preview mode, supported Markdown files (`.md`, `.markdown`, `.mdown`, `.mkd`) render as HTML. Directories resolve `README` first, then `index.html`, then fall back to a listing.
+
+Use file mode for raw file browsing:
+
+``` shell
+serv --mode file Downloads
+serv -m f Downloads
+```
+
+In file mode, files are served raw and directories show listings by default.
+
+Change directory resolution with `--dir-resolve`:
+
+``` shell
+serv --mode preview --dir-resolve index-first site
+serv -m p --dir-resolve rf .
+serv -m file --dir-resolve index-only site
+```
+
+Strategies: `readme-first`/`rf`, `index-first`/`if`, `readme-only`/`ro`, `index-only`/`io`, `none`/`n`.
+
+Per-request URL overrides:
+
+```text
+/README.md?raw=1
+/README.md?preview=1
+/docs/?resolve=none
+/docs/?resolve=index-only
+```
 
 ## Behavior
 
 - You can serve either a directory or a single file.
-- If a requested directory contains `index.html`, it is served automatically.
-- If no `index.html` is found, `serv` renders a directory listing page.
-- Use `--no-index-resolve` to disable automatic `index.html` resolution in directories.
-
-``` shell
-serv --no-index-resolve Downloads
-```
+- HTML files are served directly as static HTML.
+- Missing directory resolution candidates fall back to a directory listing.
+- `--preview`/`-P` is deprecated; use `--mode preview`.
+- `--no-index-resolve` is deprecated; use `--dir-resolve`.
 
 # License
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -120,7 +121,7 @@ func TestServeFileDefaultRawMarkdown(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/README.md", nil)
 	w := httptest.NewRecorder()
 
-	serveFile(w, r, "README.md", fsys, false)
+	serveFile(w, r, "README.md", fsys, serveConfig{Mode: serveModeFile})
 
 	res := w.Result()
 	body, _ := io.ReadAll(res.Body)
@@ -137,7 +138,7 @@ func TestServeFilePreviewMarkdown(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/README.md", nil)
 	w := httptest.NewRecorder()
 
-	serveFile(w, r, "README.md", fsys, true)
+	serveFile(w, r, "README.md", fsys, serveConfig{Mode: serveModePreview})
 
 	res := w.Result()
 	body, _ := io.ReadAll(res.Body)
@@ -154,10 +155,91 @@ func TestServeFilePreviewUnsupportedRaw(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/plain.txt", nil)
 	w := httptest.NewRecorder()
 
-	serveFile(w, r, "plain.txt", fsys, true)
+	serveFile(w, r, "plain.txt", fsys, serveConfig{Mode: serveModePreview})
 
 	body, _ := io.ReadAll(w.Result().Body)
 	if got := string(body); got != "hello" {
 		t.Fatalf("body = %q, want raw text", got)
+	}
+}
+
+func TestServeFileRawQueryWinsOverPreview(t *testing.T) {
+	fsys := fstest.MapFS{"README.md": &fstest.MapFile{Data: []byte("# Title")}}
+	r := httptest.NewRequest(http.MethodGet, "/README.md?raw=1&preview=1", nil)
+	w := httptest.NewRecorder()
+
+	serveFile(w, r, "README.md", fsys, serveConfig{Mode: serveModePreview})
+
+	body, _ := io.ReadAll(w.Result().Body)
+	if got := string(body); got != "# Title" {
+		t.Fatalf("body = %q, want raw markdown", got)
+	}
+}
+
+func TestServeFilePreviewQueryRendersInFileMode(t *testing.T) {
+	fsys := fstest.MapFS{"README.md": &fstest.MapFile{Data: []byte("# Title")}}
+	r := httptest.NewRequest(http.MethodGet, "/README.md?preview=1", nil)
+	w := httptest.NewRecorder()
+
+	serveFile(w, r, "README.md", fsys, serveConfig{Mode: serveModeFile})
+
+	body, _ := io.ReadAll(w.Result().Body)
+	if !strings.Contains(string(body), "<h1>Title</h1>") {
+		t.Fatalf("body did not contain rendered markdown page: %s", body)
+	}
+}
+
+func TestSelectDirectoryCandidateStrategies(t *testing.T) {
+	fsys := fstest.MapFS{
+		"docs/README.MD":  &fstest.MapFile{Data: []byte("# Readme")},
+		"docs/index.html": &fstest.MapFile{Data: []byte("<h1>Index</h1>")},
+	}
+
+	tests := []struct {
+		strategy dirResolveStrategy
+		want     string
+		ok       bool
+	}{
+		{dirResolveReadmeFirst, "docs/README.MD", true},
+		{dirResolveIndexFirst, "docs/index.html", true},
+		{dirResolveReadmeOnly, "docs/README.MD", true},
+		{dirResolveIndexOnly, "docs/index.html", true},
+		{dirResolveNone, "", false},
+	}
+
+	for _, tt := range tests {
+		got, ok := selectDirectoryCandidate(fsys, "docs", tt.strategy)
+		if got != tt.want || ok != tt.ok {
+			t.Fatalf("selectDirectoryCandidate(%s) = (%q, %v), want (%q, %v)", tt.strategy, got, ok, tt.want, tt.ok)
+		}
+	}
+}
+
+func TestSelectDirectoryCandidateMissingFallsBack(t *testing.T) {
+	fsys := fstest.MapFS{"docs/file.txt": &fstest.MapFile{Data: []byte("x")}}
+	if got, ok := selectDirectoryCandidate(fsys, "docs", dirResolveReadmeFirst); ok || got != "" {
+		t.Fatalf("selectDirectoryCandidate() = (%q, %v), want no candidate", got, ok)
+	}
+}
+
+func TestServeFolderPreviewDefaultServesReadmeBeforeIndex(t *testing.T) {
+	root := t.TempDir()
+	rootInfo, err := fstest.MapFS{"docs": &fstest.MapFile{Mode: 0755 | fs.ModeDir}}.Stat("docs")
+	if err != nil {
+		t.Fatalf("stat root: %v", err)
+	}
+	fsys := fstest.MapFS{
+		"docs":            &fstest.MapFile{Mode: 0755 | fs.ModeDir},
+		"docs/README.md":  &fstest.MapFile{Data: []byte("# Readme")},
+		"docs/index.html": &fstest.MapFile{Data: []byte("<h1>Index</h1>")},
+	}
+	r := httptest.NewRequest(http.MethodGet, "/docs/", nil)
+	w := httptest.NewRecorder()
+
+	serveFolder(w, r, "docs", fsys, rootInfo, root, serveConfig{Mode: serveModePreview, DirResolve: dirResolveReadmeFirst})
+
+	body, _ := io.ReadAll(w.Result().Body)
+	if !strings.Contains(string(body), "<h1>Readme</h1>") || strings.Contains(string(body), "Index") {
+		t.Fatalf("body = %s, want README preview", body)
 	}
 }

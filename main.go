@@ -53,16 +53,28 @@ func main() {
 				Value:   false,
 				Usage:   "Print version and exit",
 			},
+			&cli.StringFlag{
+				Name:    "mode",
+				Aliases: []string{"m"},
+				Value:   string(serveModePreview),
+				Usage:   "Serving mode: preview/p or file/f",
+			},
+			&cli.StringFlag{
+				Name:  "dir-resolve",
+				Usage: "Directory resolution: readme-first/rf, index-first/if, readme-only/ro, index-only/io, none/n",
+			},
 			&cli.BoolFlag{
-				Name:  "no-index-resolve",
-				Value: false,
-				Usage: "Disable automatic index.html resolution for directories",
+				Name:   "no-index-resolve",
+				Value:  false,
+				Hidden: true,
+				Usage:  "Deprecated: use --dir-resolve instead",
 			},
 			&cli.BoolFlag{
 				Name:    "preview",
 				Aliases: []string{"P"},
 				Value:   false,
-				Usage:   "Render supported files as styled HTML previews",
+				Hidden:  true,
+				Usage:   "Deprecated: use --mode preview instead",
 			},
 			&cli.BoolFlag{
 				Name:    "open",
@@ -92,6 +104,31 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+type serveMode string
+
+type dirResolveStrategy string
+
+type serveConfig struct {
+	Mode       serveMode
+	DirResolve dirResolveStrategy
+}
+
+type recoveryLink struct {
+	Label string
+	Query string
+}
+
+const (
+	serveModePreview serveMode = "preview"
+	serveModeFile    serveMode = "file"
+
+	dirResolveReadmeFirst dirResolveStrategy = "readme-first"
+	dirResolveIndexFirst  dirResolveStrategy = "index-first"
+	dirResolveReadmeOnly  dirResolveStrategy = "readme-only"
+	dirResolveIndexOnly   dirResolveStrategy = "index-only"
+	dirResolveNone        dirResolveStrategy = "none"
+)
 
 const (
 	ansiReset      = "\x1b[0m"
@@ -214,14 +251,83 @@ func printLaunchInfo(version, rootFile, port string) {
 	fmt.Printf("  %s\n", urlText)
 }
 
+func parseServeMode(value string) (serveMode, error) {
+	switch strings.ToLower(value) {
+	case "preview", "p", "":
+		return serveModePreview, nil
+	case "file", "f":
+		return serveModeFile, nil
+	default:
+		return "", errors.Errorf("invalid mode %q (expected preview/p or file/f)", value)
+	}
+}
+
+func parseDirResolveStrategy(value string) (dirResolveStrategy, error) {
+	switch strings.ToLower(value) {
+	case "readme-first", "rf", "":
+		return dirResolveReadmeFirst, nil
+	case "index-first", "if":
+		return dirResolveIndexFirst, nil
+	case "readme-only", "ro":
+		return dirResolveReadmeOnly, nil
+	case "index-only", "io":
+		return dirResolveIndexOnly, nil
+	case "none", "n":
+		return dirResolveNone, nil
+	default:
+		return "", errors.Errorf("invalid dir-resolve %q", value)
+	}
+}
+
+func effectiveServeConfig(cmd *cli.Command) (serveConfig, error) {
+	mode, err := parseServeMode(cmd.String("mode"))
+	if err != nil {
+		return serveConfig{}, err
+	}
+
+	if cmd.Bool("preview") {
+		fmt.Fprintln(os.Stderr, "Warning: --preview is deprecated; use --mode preview instead.")
+		if cmd.IsSet("mode") && mode == serveModeFile {
+			return serveConfig{}, errors.New("--preview cannot be combined with --mode file")
+		}
+		mode = serveModePreview
+	}
+
+	strategy := dirResolveReadmeFirst
+	if mode == serveModeFile {
+		strategy = dirResolveNone
+	}
+	if cmd.IsSet("dir-resolve") {
+		strategy, err = parseDirResolveStrategy(cmd.String("dir-resolve"))
+		if err != nil {
+			return serveConfig{}, err
+		}
+	}
+	if cmd.Bool("no-index-resolve") {
+		fmt.Fprintln(os.Stderr, "Warning: --no-index-resolve is deprecated; use --dir-resolve instead.")
+		if cmd.IsSet("dir-resolve") {
+			fmt.Fprintln(os.Stderr, "Warning: --no-index-resolve ignored because --dir-resolve was provided.")
+		} else if mode == serveModePreview {
+			strategy = dirResolveReadmeOnly
+		}
+	}
+
+	return serveConfig{Mode: mode, DirResolve: strategy}, nil
+}
+
 func serveAction(ctx context.Context, cmd *cli.Command) error {
 	if cmd.Bool("version") {
 		fmt.Println(G.Version)
 		return nil
 	}
 
+	serveConfig, err := effectiveServeConfig(cmd)
+	if err != nil {
+		return err
+	}
+
 	rootFile := cmd.StringArg("file")
-	rootFile, err := filepath.Abs(rootFile)
+	rootFile, err = filepath.Abs(rootFile)
 	if err != nil {
 		return errors.Wrap(err, "failed to get absolute path")
 	}
@@ -285,14 +391,11 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		}
 
 		if fileInfo.IsDir() {
-			resolveIndex := true
-			if cmd.Bool("no-index-resolve") {
-				resolveIndex = false
-			}
-
-			serveFolder(w, r, requestedPath, fsys, fileInfo, rootFile, resolveIndex, cmd.Bool("preview"))
+			serveFolder(w, r, requestedPath, fsys, fileInfo, rootFile, serveConfig)
 		} else {
-			serveFile(w, r, requestedPath, fsys, cmd.Bool("preview"))
+			if err := serveFile(w, r, requestedPath, fsys, serveConfig); err != nil {
+				serveFileError(w, r, "Serve error", err, nil)
+			}
 		}
 	}))
 
@@ -307,23 +410,126 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 	return http.ListenAndServe(":"+port.Str, nil)
 }
 
-func serveFolder(lw http.ResponseWriter, r *http.Request, requestedPath string, fsys fs.FS, rootInfo fs.FileInfo, rootFile string, resolveIndex bool, previewMode bool) {
-	if resolveIndex {
-		indexPath := path.Join(requestedPath, "index.html")
-		hasIndexHtml := func() bool {
-			if indexInfo, err := fs.Stat(fsys, indexPath); err == nil && !indexInfo.IsDir() {
-				return true
-			}
+func requestDirResolveStrategy(r *http.Request, fallback dirResolveStrategy) dirResolveStrategy {
+	if r == nil || r.URL == nil {
+		return fallback
+	}
+	value := r.URL.Query().Get("resolve")
+	if value == "" {
+		return fallback
+	}
+	strategy, err := parseDirResolveStrategy(value)
+	if err != nil {
+		return fallback
+	}
+	return strategy
+}
+
+func directoryCandidatePaths(fsys fs.FS, dir string, strategy dirResolveStrategy) []string {
+	readme := func() []string {
+		if p, ok := findReadme(fsys, dir); ok {
+			return []string{p}
+		}
+		return nil
+	}
+	index := []string{path.Join(dir, "index.html")}
+	switch strategy {
+	case dirResolveReadmeFirst:
+		return append(readme(), index...)
+	case dirResolveIndexFirst:
+		return append(index, readme()...)
+	case dirResolveReadmeOnly:
+		return readme()
+	case dirResolveIndexOnly:
+		return index
+	default:
+		return nil
+	}
+}
+
+func selectDirectoryCandidate(fsys fs.FS, dir string, strategy dirResolveStrategy) (string, bool) {
+	for _, candidate := range directoryCandidatePaths(fsys, dir, strategy) {
+		info, err := fs.Stat(fsys, candidate)
+		if err == nil && !info.IsDir() {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func findReadme(fsys fs.FS, dir string) (string, bool) {
+	entries, err := fs.ReadDir(fsys, dir)
+	if err != nil {
+		return "", false
+	}
+	allowed := map[string]bool{"readme.md": true, "readme.markdown": true, "readme.mdown": true, "readme.mkd": true}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if allowed[strings.ToLower(entry.Name())] {
+			return path.Join(dir, entry.Name()), true
+		}
+	}
+	return "", false
+}
+
+func shouldRenderPreview(r *http.Request, requestedPath string, mode serveMode) bool {
+	if !preview.CanPreview(requestedPath) {
+		return false
+	}
+	if r != nil && r.URL != nil {
+		query := r.URL.Query()
+		if query.Get("raw") == "1" {
 			return false
-		}()
-		if hasIndexHtml {
-			serveFile(lw, r, indexPath, fsys, previewMode)
+		}
+		if query.Get("preview") == "1" {
+			return true
+		}
+	}
+	return mode == serveModePreview
+}
+
+func urlWithQuery(r *http.Request, query string) string {
+	if r == nil || r.URL == nil {
+		return "?" + query
+	}
+	u := *r.URL
+	q := u.Query()
+	for _, part := range strings.Split(query, "&") {
+		key, value, ok := strings.Cut(part, "=")
+		if ok {
+			q.Set(key, value)
+		} else {
+			q.Set(key, "")
+		}
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func directoryRecoveryLinks(strategy dirResolveStrategy) []recoveryLink {
+	links := []recoveryLink{{Label: "Show directory listing", Query: "resolve=none"}}
+	switch strategy {
+	case dirResolveReadmeFirst, dirResolveReadmeOnly:
+		links = append(links, recoveryLink{Label: "Try index.html", Query: "resolve=index-only"})
+	case dirResolveIndexFirst, dirResolveIndexOnly:
+		links = append(links, recoveryLink{Label: "Try README", Query: "resolve=readme-only"})
+	}
+	return links
+}
+
+func serveFolder(lw http.ResponseWriter, r *http.Request, requestedPath string, fsys fs.FS, rootInfo fs.FileInfo, rootFile string, config serveConfig) {
+	strategy := requestDirResolveStrategy(r, config.DirResolve)
+	if strategy != dirResolveNone {
+		if candidate, ok := selectDirectoryCandidate(fsys, requestedPath, strategy); ok {
+			if err := serveFile(lw, r, candidate, fsys, config); err != nil {
+				serveFileError(lw, r, "Serve error", err, directoryRecoveryLinks(strategy))
+			}
 			return
 		}
 	}
 
-	// Future: directory README preview fallback could be added later.
-	// For directories without index.html, we need to get the full path for the FsNode
 	fullPath := filepath.Join(rootFile, requestedPath)
 	if !rootInfo.IsDir() {
 		fullPath = rootFile // serving single file's parent, but this shouldn't happen
@@ -338,23 +544,21 @@ func serveFolder(lw http.ResponseWriter, r *http.Request, requestedPath string, 
 	lw.Write(pages.GenerateFolderPage(node, requestedPath, G.Version))
 }
 
-func serveFile(lw http.ResponseWriter, r *http.Request, requestedPath string, fsys fs.FS, previewMode bool) {
+func serveFile(lw http.ResponseWriter, r *http.Request, requestedPath string, fsys fs.FS, config serveConfig) error {
 	content, err := fs.ReadFile(fsys, requestedPath)
 	if err != nil {
-		http.Error(lw, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	if previewMode && preview.CanPreview(requestedPath) {
-		// Future: raw access via ?raw / ?raw=1 could be added later.
+	if shouldRenderPreview(r, requestedPath, config.Mode) {
 		rendered, err := preview.Render(requestedPath, content)
 		if err != nil {
-			servePreviewError(lw, r, err)
-			return
+			serveFileError(lw, r, "Preview error", err, []recoveryLink{{Label: "View raw file", Query: "raw=1"}})
+			return nil
 		}
 		lw.Header().Set("Content-Type", "text/html; charset=utf-8")
-		lw.Write(rendered)
-		return
+		_, err = lw.Write(rendered)
+		return err
 	}
 
 	// Serve the file using MIME-by-extension behavior for raw responses.
@@ -362,22 +566,18 @@ func serveFile(lw http.ResponseWriter, r *http.Request, requestedPath string, fs
 	if contentType != "" {
 		lw.Header().Set("Content-Type", contentType)
 	}
-	lw.Write(content)
+	_, err = lw.Write(content)
+	return err
 }
 
-func servePreviewError(lw http.ResponseWriter, r *http.Request, renderErr error) {
-	rawURL := "?raw"
-	if r != nil && r.URL != nil {
-		currentURL := r.URL.String()
-		separator := "?"
-		if r.URL.RawQuery != "" {
-			separator = "&"
-		}
-		rawURL = currentURL + separator + "raw"
-	}
+func serveFileError(lw http.ResponseWriter, r *http.Request, title string, err error, links []recoveryLink) {
 	lw.Header().Set("Content-Type", "text/html; charset=utf-8")
 	lw.WriteHeader(http.StatusInternalServerError)
-	fmt.Fprintf(lw, "<!doctype html><html><head><meta charset=\"utf-8\"><title>Preview error</title></head><body><h1>Preview error</h1><p>%s</p><p><a href=\"%s\">View raw file</a></p></body></html>", html.EscapeString(renderErr.Error()), html.EscapeString(rawURL))
+	fmt.Fprintf(lw, "<!doctype html><html><head><meta charset=\"utf-8\"><title>%s</title></head><body><h1>%s</h1><p>%s</p>", html.EscapeString(title), html.EscapeString(title), html.EscapeString(err.Error()))
+	for _, link := range links {
+		fmt.Fprintf(lw, "<p><a href=\"%s\">%s</a></p>", html.EscapeString(urlWithQuery(r, link.Query)), html.EscapeString(link.Label))
+	}
+	fmt.Fprint(lw, "</body></html>")
 }
 
 func detectContentType(node *servfs.FsNode) (string, error) {

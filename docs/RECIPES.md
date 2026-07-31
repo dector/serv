@@ -23,7 +23,7 @@ serv -v
 serv README.md
 ```
 
-This serves that file directly.
+By default, `serv` uses preview mode. Supported Markdown files render as HTML; use `?raw=1` to view the raw file.
 
 Open the printed URL in your browser (for example `http://localhost:8080`).
 
@@ -54,32 +54,43 @@ Browser opening is best-effort; if it fails, the server keeps running and prints
 serv Downloads
 ```
 
-When serving a directory, `serv` will try to find and serve `index.html` in the requested directory first.
-If no `index.html` is found, it renders a directory listing page.
+In default preview mode, directories resolve `README` first, then `index.html`, then fall back to a listing page.
 
-### Directory behavior: auto `index.html`
+### Use file browsing mode
 
-If a directory contains `index.html`, `serv` serves it automatically:
-
-```sh
-serv site/
-```
-
-For `site/docs/`, if `site/docs/index.html` exists, that file is served.
-
-### Disable `index.html` auto-resolution
-
-Use this to always show listing pages for directories, even when `index.html` exists:
+Use file mode to serve files raw and always show directory listings by default:
 
 ```sh
-serv --no-index-resolve site/
+serv --mode file Downloads
+# or
+serv -m f Downloads
 ```
 
-### Directory behavior: listing page fallback
+### Change directory resolution
 
-If no `index.html` exists in the requested directory, `serv` renders a directory listing page automatically:
+Choose an explicit directory strategy:
 
 ```sh
-serv Downloads
+serv --mode preview --dir-resolve index-first site
+serv -m p --dir-resolve rf .
+serv -m file --dir-resolve index-only site
 ```
+
+Available strategies: `readme-first`/`rf`, `index-first`/`if`, `readme-only`/`ro`, `index-only`/`io`, `none`/`n`.
+
+Per-request overrides are available too:
+
+```text
+/docs/?resolve=none
+/docs/?resolve=index-only
+```
+
+### File preview overrides
+
+```text
+/README.md?raw=1
+/README.md?preview=1
+```
+
+`raw=1` wins when both `raw=1` and `preview=1` are present.
 
