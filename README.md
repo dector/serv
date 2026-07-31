@@ -2,6 +2,8 @@
 
 Serve file or folder as a web-page.
 
+[CHANGELOG](./CHANGELOG.md)
+
 # Usage
 
 ## Install
