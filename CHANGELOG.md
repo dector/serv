@@ -1,6 +1,8 @@
 # Changelog
 
-## [0.8.1-snapshot] - Unreleased
+## [0.8.2-snapshot] - Unreleased
+
+## [0.8.1] - 2026-08-01
 
 ### Added
 
