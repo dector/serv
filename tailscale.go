@@ -8,8 +8,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 const exposeTailscaleDefaultValue = "__serv_expose_tailscale_default__"
@@ -32,6 +34,43 @@ type tailscaleRunner interface {
 }
 
 type realTailscaleRunner struct{}
+
+var tailscaleHTTPSURLPattern = regexp.MustCompile(`https://[^\s|]+`)
+
+type tailscaleURLWriter struct {
+	mu     sync.Mutex
+	text   strings.Builder
+	urlCh  chan string
+	closed bool
+}
+
+func newTailscaleURLWriter() *tailscaleURLWriter {
+	return &tailscaleURLWriter{urlCh: make(chan string, 1)}
+}
+
+func (w *tailscaleURLWriter) URL() <-chan string {
+	return w.urlCh
+}
+
+func (w *tailscaleURLWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.text.Write(p)
+	if !w.closed {
+		if url := parseTailscaleHTTPSURL(w.text.String()); url != "" {
+			w.urlCh <- url
+			close(w.urlCh)
+			w.closed = true
+		}
+	}
+	return len(p), nil
+}
+
+func parseTailscaleHTTPSURL(output string) string {
+	url := tailscaleHTTPSURLPattern.FindString(output)
+	return strings.TrimRight(url, "/.,;:)")
+}
 
 func (realTailscaleRunner) LookPath() error {
 	_, err := exec.LookPath("tailscale")

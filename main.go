@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"io"
 	"io/fs"
 	"mime"
 	"net"
@@ -91,6 +92,11 @@ func main() {
 				DefaultText: "local port",
 				HideDefault: true,
 				Usage:       "Expose via Tailscale Serve; optional value sets HTTPS port",
+			},
+			&cli.BoolFlag{
+				Name:  "verbose",
+				Value: false,
+				Usage: "Print verbose command output",
 			},
 			&cli.BoolFlag{
 				Name:    "browser",
@@ -250,14 +256,21 @@ func printLaunchInfo(version, rootFile, port string) {
 
 	bullet := "●"
 	pathText := rootFile
-	urlText := servedURL(port)
 	if useColor {
 		bullet = colorize(bullet, ansiGreen)
 		pathText = colorize(pathText, ansiBold)
-		urlText = colorize(urlText, ansiBrightCyan, ansiUnderline)
 	}
 
 	fmt.Printf("%s serving %s\n", bullet, pathText)
+	printURLLine(servedURL(port))
+}
+
+func printURLLine(url string) {
+	useColor := shouldUseColor(term.IsTerminal(int(os.Stdout.Fd())), os.LookupEnv)
+	urlText := url
+	if useColor {
+		urlText = colorize(urlText, ansiBrightCyan, ansiUnderline)
+	}
 	fmt.Printf("  %s\n", urlText)
 }
 
@@ -371,7 +384,7 @@ func checkTailscaleReady(ctx context.Context, runner tailscaleRunner, tailscaleP
 	return nil
 }
 
-func serveWithTailscale(ctx context.Context, server *http.Server, listener net.Listener, readyAddr, localPort, tailscalePort string, runner tailscaleRunner) error {
+func serveWithTailscale(ctx context.Context, server *http.Server, listener net.Listener, readyAddr, localPort, tailscalePort string, verbose bool, runner tailscaleRunner) error {
 	serverErr := make(chan error, 1)
 	go func() {
 		serverErr <- server.Serve(listener)
@@ -382,8 +395,18 @@ func serveWithTailscale(ctx context.Context, server *http.Server, listener net.L
 		return errors.Wrap(err, "server did not become ready for Tailscale exposure")
 	}
 
-	fmt.Printf("Exposing via Tailscale HTTPS port %s -> http://127.0.0.1:%s\n", tailscalePort, localPort)
-	tailscaleProc, err := runner.StartServe(ctx, tailscalePort, localPort, os.Stdout, os.Stderr)
+	stdout := io.Writer(os.Stdout)
+	stderr := io.Writer(os.Stderr)
+	var urlCh <-chan string
+	if !verbose {
+		urlWriter := newTailscaleURLWriter()
+		stdout = urlWriter
+		stderr = urlWriter
+		urlCh = urlWriter.URL()
+	} else {
+		fmt.Printf("Exposing via Tailscale HTTPS port %s -> http://127.0.0.1:%s\n", tailscalePort, localPort)
+	}
+	tailscaleProc, err := runner.StartServe(ctx, tailscalePort, localPort, stdout, stderr)
 	if err != nil {
 		_ = server.Shutdown(context.Background())
 		return errors.Wrap(err, "failed to start tailscale serve")
@@ -393,6 +416,20 @@ func serveWithTailscale(ctx context.Context, server *http.Server, listener net.L
 	go func() {
 		tailscaleErr <- tailscaleProc.Wait()
 	}()
+
+	if !verbose {
+		select {
+		case url := <-urlCh:
+			printURLLine(url)
+		case err := <-tailscaleErr:
+			_ = server.Shutdown(context.Background())
+			if err != nil {
+				return errors.Wrap(err, "tailscale serve failed")
+			}
+			return nil
+		case <-time.After(2 * time.Second):
+		}
+	}
 
 	signalCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
@@ -546,7 +583,7 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		return server.Serve(listener)
 	}
 
-	return serveWithTailscale(ctx, server, listener, readyAddr, port.Str, tailscaleConfig.Port, realTailscaleRunner{})
+	return serveWithTailscale(ctx, server, listener, readyAddr, port.Str, tailscaleConfig.Port, cmd.Bool("verbose"), realTailscaleRunner{})
 }
 
 func requestDirResolveStrategy(r *http.Request, fallback dirResolveStrategy) dirResolveStrategy {

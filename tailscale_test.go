@@ -117,6 +117,34 @@ func TestTailscaleServeArgs(t *testing.T) {
 	}
 }
 
+func TestParseTailscaleHTTPSURL(t *testing.T) {
+	output := `Available within your tailnet:
+
+https://factory.chicken-matrix.ts.net:60894/
+|-- proxy http://127.0.0.1:60894`
+
+	want := "https://factory.chicken-matrix.ts.net:60894"
+	if got := parseTailscaleHTTPSURL(output); got != want {
+		t.Fatalf("parseTailscaleHTTPSURL() = %q, want %q", got, want)
+	}
+}
+
+func TestTailscaleURLWriterReportsFirstURL(t *testing.T) {
+	writer := newTailscaleURLWriter()
+	_, _ = writer.Write([]byte("Available within your tailnet:\n"))
+	_, _ = writer.Write([]byte("https://factory.chicken-matrix.ts.net:60894/\n"))
+
+	select {
+	case got := <-writer.URL():
+		want := "https://factory.chicken-matrix.ts.net:60894"
+		if got != want {
+			t.Fatalf("URL() = %q, want %q", got, want)
+		}
+	default:
+		t.Fatal("expected URL writer to report parsed URL")
+	}
+}
+
 func TestCheckTailscaleReady(t *testing.T) {
 	if err := checkTailscaleReady(context.Background(), checkRunner{lookPathErr: errors.New("missing")}, "443"); err == nil {
 		t.Fatal("expected missing tailscale to fail")
