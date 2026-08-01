@@ -339,8 +339,15 @@ func effectiveServeConfig(cmd *cli.Command) (serveConfig, error) {
 	return serveConfig{Mode: mode, DirResolve: strategy}, nil
 }
 
-func isTCPPortAvailable(port string) bool {
-	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", port))
+func listenAddr(host, port string) string {
+	if host == "" {
+		return ":" + port
+	}
+	return net.JoinHostPort(host, port)
+}
+
+func isTCPPortAvailableOnHost(host, port string) bool {
+	ln, err := net.Listen("tcp", listenAddr(host, port))
 	if err != nil {
 		return false
 	}
@@ -348,23 +355,66 @@ func isTCPPortAvailable(port string) bool {
 	return true
 }
 
-func selectLocalPort(cmd *cli.Command, rootFile string, exposeTailscale bool) (nettw.Port, error) {
+func isTCPPortAvailable(port string) bool {
+	return isTCPPortAvailableOnHost("127.0.0.1", port)
+}
+
+type listenConfig struct {
+	Port      nettw.Port
+	BindAddr  string
+	ReadyAddr string
+}
+
+type portAvailabilityFunc func(host, port string) bool
+
+type portPickerFunc func(requestedPort, rootFile string, exposeTailscale bool) (nettw.Port, error)
+
+func pickLocalPort(requestedPort, rootFile string, exposeTailscale bool) (nettw.Port, error) {
+	if exposeTailscale {
+		return nettw.ParsePortOrPickAnother("random", nettw.WithIgnoreInvalidPort(true), nettw.WithSeed(rootFile), nettw.WithPortRange(49152, 65535))
+	}
+	return nettw.ParsePortOrPickAnother(requestedPort, nettw.WithSeed(rootFile))
+}
+
+func detectListenConfig(requestedPort string, portIsSet bool, rootFile string, exposeTailscale bool, available portAvailabilityFunc, pickPort portPickerFunc) (listenConfig, error) {
+	var port nettw.Port
 	if !exposeTailscale {
-		return nettw.ParsePortOrPickAnother(cmd.String("port"), nettw.WithSeed(rootFile))
-	}
-
-	if cmd.IsSet("port") {
-		port, err := validateTCPPort(cmd.String("port"))
+		if parsedPort, err := validateTCPPort(requestedPort); err == nil && available("127.0.0.1", parsedPort) {
+			port = nettw.Port{Str: parsedPort}
+		} else {
+			pickedPort, err := pickPort(requestedPort, rootFile, false)
+			if err != nil {
+				return listenConfig{}, err
+			}
+			port = pickedPort
+		}
+	} else if portIsSet {
+		parsedPort, err := validateTCPPort(requestedPort)
 		if err != nil {
-			return nettw.Port{}, fmt.Errorf("invalid --port: %w", err)
+			return listenConfig{}, fmt.Errorf("invalid --port: %w", err)
 		}
-		if !isTCPPortAvailable(port) {
-			return nettw.Port{}, errors.Errorf("local port %s is not available", port)
+		if !available("127.0.0.1", parsedPort) {
+			return listenConfig{}, errors.Errorf("local port %s is not available", parsedPort)
 		}
-		return nettw.Port{Str: port}, nil
+		port = nettw.Port{Str: parsedPort}
+	} else {
+		pickedPort, err := pickPort("random", rootFile, true)
+		if err != nil {
+			return listenConfig{}, err
+		}
+		port = pickedPort
 	}
 
-	return nettw.ParsePortOrPickAnother("random", nettw.WithIgnoreInvalidPort(true), nettw.WithSeed(rootFile), nettw.WithPortRange(49152, 65535))
+	readyAddr := net.JoinHostPort("127.0.0.1", port.Str)
+	bindAddr := listenAddr("", port.Str)
+	if exposeTailscale || !available("", port.Str) {
+		bindAddr = readyAddr
+	}
+	return listenConfig{Port: port, BindAddr: bindAddr, ReadyAddr: readyAddr}, nil
+}
+
+func selectListenConfig(cmd *cli.Command, rootFile string, exposeTailscale bool) (listenConfig, error) {
+	return detectListenConfig(cmd.String("port"), cmd.IsSet("port"), rootFile, exposeTailscale, isTCPPortAvailableOnHost, pickLocalPort)
 }
 
 func checkTailscaleReady(ctx context.Context, runner tailscaleRunner, tailscalePort string) error {
@@ -487,11 +537,11 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	exposeTailscale := cmd.IsSet("expose-tailscale")
-	port, err := selectLocalPort(cmd, rootFile, exposeTailscale)
+	listenConfig, err := selectListenConfig(cmd, rootFile, exposeTailscale)
 	if err != nil {
 		return err
 	}
-	tailscaleConfig, err := parseExposeTailscaleConfig(exposeTailscale, cmd.String("expose-tailscale"), port.Str)
+	tailscaleConfig, err := parseExposeTailscaleConfig(exposeTailscale, cmd.String("expose-tailscale"), listenConfig.Port.Str)
 	if err != nil {
 		return err
 	}
@@ -564,27 +614,22 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		fmt.Fprintln(os.Stderr, "Warning: --browser/-B is deprecated and will be removed in a future release. Use --open/-o instead.")
 	}
 
-	bindAddr := ":" + port.Str
-	readyAddr := net.JoinHostPort("127.0.0.1", port.Str)
-	if tailscaleConfig.Enabled {
-		bindAddr = readyAddr
-	}
-	server := &http.Server{Addr: bindAddr, Handler: mux}
-	listener, err := net.Listen("tcp", bindAddr)
+	server := &http.Server{Addr: listenConfig.BindAddr, Handler: mux}
+	listener, err := net.Listen("tcp", listenConfig.BindAddr)
 	if err != nil {
 		return err
 	}
 
-	printLaunchInfo(G.Version, rootFile, port.Str)
+	printLaunchInfo(G.Version, rootFile, listenConfig.Port.Str)
 	if cmd.Bool("open") || cmd.Bool("browser") {
-		openBrowserWhenReady(port.Str, servedURL(port.Str))
+		openBrowserWhenReady(listenConfig.Port.Str, servedURL(listenConfig.Port.Str))
 	}
 
 	if !tailscaleConfig.Enabled {
 		return server.Serve(listener)
 	}
 
-	return serveWithTailscale(ctx, server, listener, readyAddr, port.Str, tailscaleConfig.Port, cmd.Bool("verbose"), realTailscaleRunner{})
+	return serveWithTailscale(ctx, server, listener, listenConfig.ReadyAddr, listenConfig.Port.Str, tailscaleConfig.Port, cmd.Bool("verbose"), realTailscaleRunner{})
 }
 
 func requestDirResolveStrategy(r *http.Request, fallback dirResolveStrategy) dirResolveStrategy {

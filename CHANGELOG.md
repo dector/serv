@@ -2,6 +2,10 @@
 
 ## [0.8.3-snapshot] - Unreleased
 
+### Fixed
+
+- Keep default and explicit local ports when Tailscale Serve occupies matching tailnet ports.
+
 ## [0.8.2] - 2026-08-01
 
 ### Changed
