@@ -15,6 +15,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -638,16 +639,83 @@ func findReadme(fsys fs.FS, dir string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	allowed := map[string]bool{"readme.md": true, "readme.markdown": true, "readme.mdown": true, "readme.mkd": true}
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
-		if allowed[strings.ToLower(entry.Name())] {
+		if isReadmeName(entry.Name()) {
 			return path.Join(dir, entry.Name()), true
 		}
 	}
 	return "", false
+}
+
+func isReadmeName(name string) bool {
+	allowed := map[string]bool{"readme.md": true, "readme.markdown": true, "readme.mdown": true, "readme.mkd": true}
+	return allowed[strings.ToLower(name)]
+}
+
+func buildSideMenu(r *http.Request, dir string, currentPath string, fsys fs.FS) *preview.SideMenu {
+	menu := &preview.SideMenu{CurrentPath: displayDirPath(dir)}
+	entries, err := fs.ReadDir(fsys, dir)
+	if err != nil {
+		menu.Error = "Could not load directory menu."
+		return menu
+	}
+
+	if !isRootDirPath(dir) {
+		menu.Items = append(menu.Items, preview.SideMenuItem{
+			Label: "../",
+			Href:  sideMenuHref(r, "../"),
+			Title: "../",
+		})
+	}
+
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].IsDir() != entries[j].IsDir() {
+			return entries[i].IsDir()
+		}
+		return strings.ToLower(entries[i].Name()) < strings.ToLower(entries[j].Name())
+	})
+
+	currentName := path.Base(currentPath)
+	for _, entry := range entries {
+		name := entry.Name()
+		label := name
+		href := sideMenuHref(r, name)
+		if entry.IsDir() {
+			label = name + "/"
+			href = sideMenuHref(r, name+"/")
+		}
+		menu.Items = append(menu.Items, preview.SideMenuItem{
+			Label:     label,
+			Href:      href,
+			Title:     label,
+			IsDir:     entry.IsDir(),
+			IsCurrent: !entry.IsDir() && name == currentName,
+		})
+	}
+	return menu
+}
+
+func displayDirPath(dir string) string {
+	clean := path.Clean(dir)
+	if clean == "." || clean == "/" {
+		return "/"
+	}
+	return "/" + strings.Trim(clean, "/") + "/"
+}
+
+func isRootDirPath(dir string) bool {
+	clean := path.Clean(dir)
+	return clean == "." || clean == "/"
+}
+
+func sideMenuHref(r *http.Request, href string) string {
+	if r == nil || r.URL == nil || r.URL.RawQuery == "" {
+		return href
+	}
+	return href + "?" + r.URL.RawQuery
 }
 
 func shouldRenderPreview(r *http.Request, requestedPath string, mode serveMode) bool {
@@ -699,6 +767,12 @@ func serveFolder(lw http.ResponseWriter, r *http.Request, requestedPath string, 
 	strategy := requestDirResolveStrategy(r, config.DirResolve)
 	if strategy != dirResolveNone {
 		if candidate, ok := selectDirectoryCandidate(fsys, requestedPath, strategy); ok {
+			if isReadmeName(path.Base(candidate)) && shouldRenderPreview(r, candidate, config.Mode) {
+				if err := servePreviewFile(lw, r, candidate, fsys, preview.Options{SideMenu: buildSideMenu(r, requestedPath, candidate, fsys)}); err != nil {
+					serveFileError(lw, r, "Serve error", err, directoryRecoveryLinks(strategy))
+				}
+				return
+			}
 			if err := serveFile(lw, r, candidate, fsys, config); err != nil {
 				serveFileError(lw, r, "Serve error", err, directoryRecoveryLinks(strategy))
 			}
@@ -727,14 +801,7 @@ func serveFile(lw http.ResponseWriter, r *http.Request, requestedPath string, fs
 	}
 
 	if shouldRenderPreview(r, requestedPath, config.Mode) {
-		rendered, err := preview.Render(requestedPath, content)
-		if err != nil {
-			serveFileError(lw, r, "Preview error", err, []recoveryLink{{Label: "View raw file", Query: "raw=1"}})
-			return nil
-		}
-		lw.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, err = lw.Write(rendered)
-		return err
+		return writePreview(lw, r, requestedPath, content, preview.Options{})
 	}
 
 	// Serve the file using MIME-by-extension behavior for raw responses.
@@ -743,6 +810,25 @@ func serveFile(lw http.ResponseWriter, r *http.Request, requestedPath string, fs
 		lw.Header().Set("Content-Type", contentType)
 	}
 	_, err = lw.Write(content)
+	return err
+}
+
+func servePreviewFile(lw http.ResponseWriter, r *http.Request, requestedPath string, fsys fs.FS, options preview.Options) error {
+	content, err := fs.ReadFile(fsys, requestedPath)
+	if err != nil {
+		return err
+	}
+	return writePreview(lw, r, requestedPath, content, options)
+}
+
+func writePreview(lw http.ResponseWriter, r *http.Request, requestedPath string, content []byte, options preview.Options) error {
+	rendered, err := preview.RenderWithOptions(requestedPath, content, options)
+	if err != nil {
+		serveFileError(lw, r, "Preview error", err, []recoveryLink{{Label: "View raw file", Query: "raw=1"}})
+		return nil
+	}
+	lw.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, err = lw.Write(rendered)
 	return err
 }
 

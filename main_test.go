@@ -243,3 +243,88 @@ func TestServeFolderPreviewDefaultServesReadmeBeforeIndex(t *testing.T) {
 		t.Fatalf("body = %s, want README preview", body)
 	}
 }
+
+func TestServeFolderReadmePreviewIncludesSideMenu(t *testing.T) {
+	root := t.TempDir()
+	rootInfo, err := fstest.MapFS{"docs": &fstest.MapFile{Mode: 0755 | fs.ModeDir}}.Stat("docs")
+	if err != nil {
+		t.Fatalf("stat root: %v", err)
+	}
+	fsys := fstest.MapFS{
+		"docs":           &fstest.MapFile{Mode: 0755 | fs.ModeDir},
+		"docs/README.md": &fstest.MapFile{Data: []byte("# Readme")},
+		"docs/a.txt":     &fstest.MapFile{Data: []byte("a")},
+		"docs/sub":       &fstest.MapFile{Mode: 0755 | fs.ModeDir},
+	}
+	r := httptest.NewRequest(http.MethodGet, "/docs/?preview=1&resolve=readme-only", nil)
+	w := httptest.NewRecorder()
+
+	serveFolder(w, r, "docs", fsys, rootInfo, root, serveConfig{Mode: serveModeFile, DirResolve: dirResolveReadmeFirst})
+
+	bodyBytes, _ := io.ReadAll(w.Result().Body)
+	body := string(bodyBytes)
+	for _, want := range []string{"<nav class=\"side-menu\"", "/docs/", "../?preview=1&amp;resolve=readme-only", "sub/?preview=1&amp;resolve=readme-only", "a.txt?preview=1&amp;resolve=readme-only", "[dir]", "side-menu__item--current"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "href=\"README.md") {
+		t.Fatalf("current README should not be a link: %s", body)
+	}
+}
+
+func TestServeFileDirectReadmePreviewOmitsSideMenu(t *testing.T) {
+	fsys := fstest.MapFS{"README.md": &fstest.MapFile{Data: []byte("# Title")}}
+	r := httptest.NewRequest(http.MethodGet, "/README.md", nil)
+	w := httptest.NewRecorder()
+
+	serveFile(w, r, "README.md", fsys, serveConfig{Mode: serveModePreview})
+
+	body, _ := io.ReadAll(w.Result().Body)
+	if strings.Contains(string(body), "<nav class=\"side-menu\"") {
+		t.Fatalf("direct README preview should not include side menu: %s", body)
+	}
+}
+
+func TestServeFolderIndexPreviewOmitsSideMenu(t *testing.T) {
+	root := t.TempDir()
+	rootInfo, err := fstest.MapFS{"docs": &fstest.MapFile{Mode: 0755 | fs.ModeDir}}.Stat("docs")
+	if err != nil {
+		t.Fatalf("stat root: %v", err)
+	}
+	fsys := fstest.MapFS{
+		"docs":            &fstest.MapFile{Mode: 0755 | fs.ModeDir},
+		"docs/README.md":  &fstest.MapFile{Data: []byte("# Readme")},
+		"docs/index.html": &fstest.MapFile{Data: []byte("<h1>Index</h1>")},
+	}
+	r := httptest.NewRequest(http.MethodGet, "/docs/?resolve=index-only", nil)
+	w := httptest.NewRecorder()
+
+	serveFolder(w, r, "docs", fsys, rootInfo, root, serveConfig{Mode: serveModePreview, DirResolve: dirResolveReadmeFirst})
+
+	body, _ := io.ReadAll(w.Result().Body)
+	if strings.Contains(string(body), "<nav class=\"side-menu\"") {
+		t.Fatalf("index resolution should not include side menu: %s", body)
+	}
+}
+
+func TestServeFolderRawReadmeOmitsSideMenu(t *testing.T) {
+	root := t.TempDir()
+	rootInfo, err := fstest.MapFS{"docs": &fstest.MapFile{Mode: 0755 | fs.ModeDir}}.Stat("docs")
+	if err != nil {
+		t.Fatalf("stat root: %v", err)
+	}
+	fsys := fstest.MapFS{
+		"docs":           &fstest.MapFile{Mode: 0755 | fs.ModeDir},
+		"docs/README.md": &fstest.MapFile{Data: []byte("# Readme")},
+	}
+	r := httptest.NewRequest(http.MethodGet, "/docs/?raw=1", nil)
+	w := httptest.NewRecorder()
+
+	serveFolder(w, r, "docs", fsys, rootInfo, root, serveConfig{Mode: serveModePreview, DirResolve: dirResolveReadmeFirst})
+
+	body, _ := io.ReadAll(w.Result().Body)
+	if got := string(body); got != "# Readme" {
+		t.Fatalf("body = %q, want raw README", got)
+	}
+}

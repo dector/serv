@@ -65,7 +65,7 @@ serv .
 serv README.md
 ```
 
-In preview mode, supported Markdown files (`.md`, `.markdown`, `.mdown`, `.mkd`) render as HTML. Directories resolve `README` first, then `index.html`, then fall back to a listing.
+In preview mode, supported Markdown files (`.md`, `.markdown`, `.mdown`, `.mkd`) render as HTML. Directories resolve `README` first, then `index.html`, then fall back to a listing. Auto-resolved README previews include a foldable side menu for navigating sibling files and folders.
 
 Use file mode for raw file browsing:
 

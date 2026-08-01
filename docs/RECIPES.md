@@ -66,7 +66,7 @@ Browser opening is best-effort; if it fails, the server keeps running and prints
 serv Downloads
 ```
 
-In default preview mode, directories resolve `README` first, then `index.html`, then fall back to a listing page.
+In default preview mode, directories resolve `README` first, then `index.html`, then fall back to a listing page. Auto-resolved README previews include a foldable side menu for navigating sibling files and folders.
 
 ### Use file browsing mode
 
