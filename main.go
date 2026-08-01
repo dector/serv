@@ -10,10 +10,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/dector/nettw"
@@ -82,6 +84,14 @@ func main() {
 				Value:   false,
 				Usage:   "Open the served URL in the default browser",
 			},
+			&cli.StringFlag{
+				Name:        "expose-tailscale",
+				Aliases:     []string{"T"},
+				Value:       exposeTailscaleDefaultValue,
+				DefaultText: "local port",
+				HideDefault: true,
+				Usage:       "Expose via Tailscale Serve; optional value sets HTTPS port",
+			},
 			&cli.BoolFlag{
 				Name:    "browser",
 				Aliases: []string{"B"},
@@ -99,7 +109,7 @@ func main() {
 		Action: serveAction,
 	}
 
-	if err := app.Run(context.Background(), os.Args); err != nil {
+	if err := app.Run(context.Background(), normalizeExposeTailscaleArgs(os.Args)); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %+v\n", err)
 		os.Exit(1)
 	}
@@ -315,6 +325,108 @@ func effectiveServeConfig(cmd *cli.Command) (serveConfig, error) {
 	return serveConfig{Mode: mode, DirResolve: strategy}, nil
 }
 
+func isTCPPortAvailable(port string) bool {
+	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", port))
+	if err != nil {
+		return false
+	}
+	_ = ln.Close()
+	return true
+}
+
+func selectLocalPort(cmd *cli.Command, rootFile string, exposeTailscale bool) (nettw.Port, error) {
+	if !exposeTailscale {
+		return nettw.ParsePortOrPickAnother(cmd.String("port"), nettw.WithSeed(rootFile))
+	}
+
+	if cmd.IsSet("port") {
+		port, err := validateTCPPort(cmd.String("port"))
+		if err != nil {
+			return nettw.Port{}, fmt.Errorf("invalid --port: %w", err)
+		}
+		if !isTCPPortAvailable(port) {
+			return nettw.Port{}, errors.Errorf("local port %s is not available", port)
+		}
+		return nettw.Port{Str: port}, nil
+	}
+
+	return nettw.ParsePortOrPickAnother("random", nettw.WithIgnoreInvalidPort(true), nettw.WithSeed(rootFile), nettw.WithPortRange(49152, 65535))
+}
+
+func checkTailscaleReady(ctx context.Context, runner tailscaleRunner, tailscalePort string) error {
+	if err := runner.LookPath(); err != nil {
+		return errors.New("tailscale is not installed or not found in PATH; install Tailscale to use --expose-tailscale")
+	}
+
+	status, err := runner.StatusJSON(ctx)
+	if err != nil {
+		if isNoTailscaleServeConfig(status) {
+			return nil
+		}
+		return errors.Errorf("failed to check Tailscale Serve status: %v\n%s", err, strings.TrimSpace(string(status)))
+	}
+	if tailscaleStatusHasHTTPSPort(status, tailscalePort) {
+		return errors.Errorf("Tailscale HTTPS port %s is already configured", tailscalePort)
+	}
+	return nil
+}
+
+func serveWithTailscale(ctx context.Context, server *http.Server, listener net.Listener, readyAddr, localPort, tailscalePort string, runner tailscaleRunner) error {
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- server.Serve(listener)
+	}()
+
+	if err := waitForTCP(readyAddr, 2*time.Second); err != nil {
+		_ = server.Shutdown(context.Background())
+		return errors.Wrap(err, "server did not become ready for Tailscale exposure")
+	}
+
+	fmt.Printf("Exposing via Tailscale HTTPS port %s -> http://127.0.0.1:%s\n", tailscalePort, localPort)
+	tailscaleProc, err := runner.StartServe(ctx, tailscalePort, localPort, os.Stdout, os.Stderr)
+	if err != nil {
+		_ = server.Shutdown(context.Background())
+		return errors.Wrap(err, "failed to start tailscale serve")
+	}
+
+	tailscaleErr := make(chan error, 1)
+	go func() {
+		tailscaleErr <- tailscaleProc.Wait()
+	}()
+
+	signalCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+
+	shutdownTailscale := func() {
+		_ = tailscaleProc.Interrupt()
+		select {
+		case <-tailscaleErr:
+		case <-time.After(3 * time.Second):
+			_ = tailscaleProc.Kill()
+			<-tailscaleErr
+		}
+	}
+
+	select {
+	case err := <-serverErr:
+		shutdownTailscale()
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case err := <-tailscaleErr:
+		_ = server.Shutdown(context.Background())
+		if err != nil {
+			return errors.Wrap(err, "tailscale serve failed")
+		}
+		return nil
+	case <-signalCtx.Done():
+		_ = server.Shutdown(context.Background())
+		shutdownTailscale()
+		return nil
+	}
+}
+
 func serveAction(ctx context.Context, cmd *cli.Command) error {
 	if cmd.Bool("version") {
 		fmt.Println(G.Version)
@@ -336,9 +448,19 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		return errors.Errorf("file does not exist: %s", rootFile)
 	}
 
-	port, err := nettw.ParsePortOrPickAnother(cmd.String("port"), nettw.WithSeed(rootFile))
+	exposeTailscale := cmd.IsSet("expose-tailscale")
+	port, err := selectLocalPort(cmd, rootFile, exposeTailscale)
 	if err != nil {
 		return err
+	}
+	tailscaleConfig, err := parseExposeTailscaleConfig(exposeTailscale, cmd.String("expose-tailscale"), port.Str)
+	if err != nil {
+		return err
+	}
+	if tailscaleConfig.Enabled {
+		if err := checkTailscaleReady(ctx, realTailscaleRunner{}, tailscaleConfig.Port); err != nil {
+			return err
+		}
 	}
 
 	// Create filesystem rooted at the specified directory or file's parent
@@ -360,7 +482,8 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		basePath = filepath.Base(rootFile)
 	}
 
-	http.HandleFunc("/", middleware.WithLogging(func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", middleware.WithLogging(func(w http.ResponseWriter, r *http.Request) {
 		// Clean the URL path and handle root requests
 		requestedPath := path.Clean(r.URL.Path)
 		if requestedPath == "/" {
@@ -403,11 +526,27 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		fmt.Fprintln(os.Stderr, "Warning: --browser/-B is deprecated and will be removed in a future release. Use --open/-o instead.")
 	}
 
+	bindAddr := ":" + port.Str
+	readyAddr := net.JoinHostPort("127.0.0.1", port.Str)
+	if tailscaleConfig.Enabled {
+		bindAddr = readyAddr
+	}
+	server := &http.Server{Addr: bindAddr, Handler: mux}
+	listener, err := net.Listen("tcp", bindAddr)
+	if err != nil {
+		return err
+	}
+
 	printLaunchInfo(G.Version, rootFile, port.Str)
 	if cmd.Bool("open") || cmd.Bool("browser") {
 		openBrowserWhenReady(port.Str, servedURL(port.Str))
 	}
-	return http.ListenAndServe(":"+port.Str, nil)
+
+	if !tailscaleConfig.Enabled {
+		return server.Serve(listener)
+	}
+
+	return serveWithTailscale(ctx, server, listener, readyAddr, port.Str, tailscaleConfig.Port, realTailscaleRunner{})
 }
 
 func requestDirResolveStrategy(r *http.Request, fallback dirResolveStrategy) dirResolveStrategy {

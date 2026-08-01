@@ -30,6 +30,21 @@ serv -p 3000 README.md
 
 If the requested port is unavailable, `serv` automatically picks another free port.
 
+## Expose via Tailscale
+
+Use `--expose-tailscale`/`-T` to expose the local server with [Tailscale Serve](https://tailscale.com/kb/1242/tailscale-serve). The `tailscale` CLI must be installed and configured.
+
+``` shell
+serv -T README.md
+serv --expose-tailscale Downloads
+serv -T 443 README.md
+serv -p 3000 -T 443 README.md
+```
+
+When `-T` is used without a value, `serv` chooses a seeded-random high local port and uses the same HTTPS port for Tailscale. Passing a value to `-T` sets the Tailscale HTTPS port only; `--port`/`-p` sets the local backend port only.
+
+With Tailscale exposure enabled, the local server binds to `127.0.0.1` instead of all interfaces. If an explicit local port is busy, `serv` fails instead of choosing another port.
+
 ## Open in browser
 
 Use `--open`/`-o` to open the served URL in your default browser after the server starts:

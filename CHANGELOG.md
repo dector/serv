@@ -2,6 +2,10 @@
 
 ## [0.8.1-snapshot] - Unreleased
 
+### Added
+
+- Add `--expose-tailscale`/`-T` to expose the served content through Tailscale Serve.
+
 ## [0.8.0] - 2026-08-01
 
 Changelog tracking started.

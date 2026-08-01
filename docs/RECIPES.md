@@ -37,6 +37,18 @@ serv -p 3000 Downloads
 
 If that port is busy, `serv` will automatically pick another free port.
 
+## Expose through Tailscale
+
+```sh
+serv -T Downloads
+serv -T 443 README.md
+serv -p 3000 -T 443 Downloads
+```
+
+`--expose-tailscale`/`-T` starts Tailscale Serve in the foreground after the local server is ready. Use `-T` without a value to expose the selected local port, or pass a value to choose the Tailscale HTTPS port. The `tailscale` CLI must already be installed and configured.
+
+When Tailscale exposure is enabled, `serv` binds the local server to `127.0.0.1`. If you explicitly pass `--port` and that local port is busy, `serv` fails instead of choosing a replacement.
+
 ## Open the served URL in your browser
 
 ```sh
