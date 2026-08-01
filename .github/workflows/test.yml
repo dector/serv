@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-build:
+    name: Test and build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Task
+        uses: arduino/setup-task@v2
+
+      - name: Compute CI version
+        run: |
+          base_version="$(awk -F'"' '/^version:/ { print $2 }' xx.yml)"
+          echo "VERSION=${base_version}.${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - name: Run tests
+        run: task ci:test
+
+      - name: Build all binaries
+        run: task ci:build
+
+      - name: Upload build artifacts
+        if: github.event_name == 'push' && github.ref == 'refs/heads/trunk'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: |
+            out/release/checksums.txt
+            out/release/serv-*

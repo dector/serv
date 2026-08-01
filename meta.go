@@ -20,9 +20,14 @@ func (self *Globals) Init() {
 //go:embed xx.yml
 var metaYAML string
 
+var versionOverride string
+
 const DefaultPort = 8080
 
 func getVersion() string {
+	if version := strings.TrimSpace(versionOverride); version != "" {
+		return version
+	}
 	var meta struct {
 		Version string `yaml:"version"`
 	}

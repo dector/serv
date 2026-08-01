@@ -1,0 +1,78 @@
+name: Snapshot
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: snapshot
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Publish snapshot
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'trunk'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: out/release
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Publish snapshot prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SNAPSHOT_SHA: ${{ github.event.workflow_run.head_sha }}
+          SNAPSHOT_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f snapshot "$SNAPSHOT_SHA"
+          git push --force origin refs/tags/snapshot
+
+          cat > release-notes.md <<EOF
+          Snapshot build for \`$SNAPSHOT_SHA\`.
+
+          CI run: $SNAPSHOT_RUN_URL
+          EOF
+
+          if gh release view snapshot >/dev/null 2>&1; then
+            gh release edit snapshot \
+              --title snapshot \
+              --notes-file release-notes.md \
+              --prerelease \
+              --latest=false
+          else
+            gh release create snapshot \
+              --title snapshot \
+              --notes-file release-notes.md \
+              --prerelease \
+              --latest=false \
+              --target "$SNAPSHOT_SHA"
+          fi
+
+          gh release view snapshot --json assets --jq '.assets[].name' |
+            xargs -r -n 1 gh release delete-asset snapshot -y
+
+          gh release upload snapshot out/release/* --clobber
