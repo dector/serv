@@ -1,6 +1,13 @@
 # Changelog
 
-## [0.8.2-snapshot] - Unreleased
+## [0.8.3-snapshot] - Unreleased
+
+## [0.8.2] - 2026-08-01
+
+### Changed
+
+- Streamline Tailscale exposure output to print the tailnet HTTPS URL with regular launch info.
+- Add `--verbose` to show full Tailscale Serve output when needed.
 
 ## [0.8.1] - 2026-08-01
 
