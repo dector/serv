@@ -20,6 +20,8 @@ jobs:
 
       - name: Set up Task
         uses: arduino/setup-task@v2
+        with:
+          repo-token: ${{ github.token }}
 
       - name: Run tests
         run: task ci:test

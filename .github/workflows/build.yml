@@ -31,6 +31,8 @@ jobs:
 
       - name: Set up Task
         uses: arduino/setup-task@v2
+        with:
+          repo-token: ${{ github.token }}
 
       - name: Build all binaries
         if: inputs.version == ''
