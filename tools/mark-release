@@ -45,12 +45,16 @@ fun latest_release_version(): Text? {
     return replace_regex(latest_tag, "^v", "", true)
 }
 
-fun parse_version_core(version: Text): [Int]? {
+fun version_core(version: Text): Text? {
     const core = replace_regex(version, "-.*$", "", true)
     if match_regex(core, "^[0-9]+\\.[0-9]+\\.[0-9]+$", true) == false {
         die("Version '{version}' is not a plain semver version.")?
     }
+    return core
+}
 
+fun parse_version_core(version: Text): [Int]? {
+    const core = version_core(version)?
     const parts = split(core, ".")
     return [parse_int(parts[0])?, parse_int(parts[1])?, parse_int(parts[2])?]
 }
@@ -58,6 +62,26 @@ fun parse_version_core(version: Text): [Int]? {
 fun tag_exists(tag: Text): Bool {
     silent trust $ git rev-parse -q --verify refs/tags/{tag} $
     return status() == 0
+}
+
+fun choose_version_source(choice: Text, manifest_version: Text, tag_version: Text): Text? {
+    if {
+        choice == "m" {
+            return manifest_version
+        }
+        choice == "manifest" {
+            return manifest_version
+        }
+        choice == "t" {
+            return tag_version
+        }
+        choice == "tag" {
+            return tag_version
+        }
+        else {
+            die("Unknown choice '{choice}'. Use m or t.")?
+        }
+    }
 }
 
 fun choose_version(choice: Text, patch_version: Text, minor_version: Text, major_version: Text): Text? {
@@ -92,12 +116,30 @@ fun prompt(message: Text): Text? {
     }
 }
 
+fun choose_bump_source(current_version: Text, latest_version: Text): Text? {
+    const current_version_core = version_core(current_version)?
+
+    if current_version_core != latest_version {
+        echo("Manifest version:     {current_version}")
+        echo("Latest tag version:   {latest_version}")
+        echo("")
+        const source_choice = prompt("Choose version source to bump [(m)anifest/(t)ag]: ")?
+        const source_version = choose_version_source(source_choice, current_version_core, latest_version)?
+        echo("")
+        return source_version
+    } else {
+        return latest_version
+    }
+}
+
 main {
     ensure_clean_worktree()?
 
     const current_version = read_manifest_version()?
     const latest_version = latest_release_version()?
-    const version_parts = parse_version_core(latest_version)?
+    const source_version = choose_bump_source(current_version, latest_version)?
+
+    const version_parts = parse_version_core(source_version)?
 
     const major = version_parts[0]
     const minor = version_parts[1]
@@ -109,6 +151,7 @@ main {
 
     echo("Current manifest version: {current_version}")
     echo("Latest release version:   {latest_version}")
+    echo("Bumping from version:     {source_version}")
     echo("")
     echo("Suggested next versions:")
     echo("  (p)atch: {patch_version}")
