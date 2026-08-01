@@ -1,6 +1,8 @@
 # Changelog
 
-## [0.7.1-snapshot] - Unreleased
+## [0.8.1-snapshot] - Unreleased
+
+## [0.8.0] - 2026-08-01
 
 Changelog tracking started.
 
