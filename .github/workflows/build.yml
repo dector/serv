@@ -2,6 +2,17 @@ name: Build
 
 on:
   workflow_call:
+    inputs:
+      version:
+        description: Version to stamp into built binaries. Uses xx.yml when empty.
+        required: false
+        type: string
+        default: ""
+      upload-artifacts:
+        description: Upload release artifacts after building.
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   build:
@@ -22,9 +33,17 @@ jobs:
         uses: arduino/setup-task@v2
 
       - name: Build all binaries
+        if: inputs.version == ''
         run: task build:all
 
+      - name: Build all binaries with version override
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        run: task ci:build
+
       - name: Upload build artifacts
+        if: inputs.upload-artifacts
         uses: actions/upload-artifact@v4
         with:
           name: release-artifacts
