@@ -10,6 +10,14 @@ tasks:
     cmds:
       - amber run tools/mark-release
 
+  fetch:snapshot:
+    cmds:
+      - git fetch --force origin refs/tags/snapshot:refs/tags/snapshot
+
+  release:push:
+    cmds:
+      - git push origin 'refs/tags/v*:refs/tags/v*'
+
   ci:test:
     cmds:
       - go test ./...
