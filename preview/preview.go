@@ -8,6 +8,7 @@ import (
 
 	"github.com/dector/serv/internal/theme"
 	"github.com/yuin/goldmark"
+	highlighting "github.com/yuin/goldmark-highlighting/v2"
 	"github.com/yuin/goldmark/extension"
 )
 
@@ -86,6 +87,9 @@ func (MarkdownRenderer) RenderWithOptions(name string, content []byte, options O
 			extension.Strikethrough,
 			extension.TaskList,
 			extension.Linkify,
+			highlighting.NewHighlighting(
+				highlighting.WithStyle("dracula"),
+			),
 		),
 	)
 
