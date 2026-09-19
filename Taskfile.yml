@@ -3,7 +3,7 @@ version: "3"
 tasks:
   run:
     cmds:
-      - go run . {{.CLI_ARGS}}
+      - go run ./cmd/cli {{.CLI_ARGS}}
     silent: true
 
   tools:mark-release:
@@ -30,13 +30,13 @@ tasks:
         test -n "${VERSION:-}" || (echo "VERSION is required" >&2; exit 1)
         rm -rf ./out/release
         mkdir -p ./out/release
-        LDFLAGS="-X main.versionOverride=$VERSION"
-        GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o out/release/serv-$VERSION-linux-amd64 ./
-        GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -o out/release/serv-$VERSION-linux-arm64 ./
-        GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o out/release/serv-$VERSION-darwin-amd64 ./
-        GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o out/release/serv-$VERSION-darwin-arm64 ./
-        GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o out/release/serv-$VERSION-windows-amd64.exe ./
-        GOOS=windows GOARCH=arm64 go build -ldflags "$LDFLAGS" -o out/release/serv-$VERSION-windows-arm64.exe ./
+        LDFLAGS="-X github.com/dector/serv/internal/version.versionOverride=$VERSION"
+        GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o out/release/serv-$VERSION-linux-amd64 ./cmd/cli
+        GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -o out/release/serv-$VERSION-linux-arm64 ./cmd/cli
+        GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o out/release/serv-$VERSION-darwin-amd64 ./cmd/cli
+        GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o out/release/serv-$VERSION-darwin-arm64 ./cmd/cli
+        GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o out/release/serv-$VERSION-windows-amd64.exe ./cmd/cli
+        GOOS=windows GOARCH=arm64 go build -ldflags "$LDFLAGS" -o out/release/serv-$VERSION-windows-arm64.exe ./cmd/cli
         sha256sum ./out/release/serv-* > ./out/release/checksums.txt
 
   build:all:
@@ -45,7 +45,7 @@ tasks:
     cmds:
       - |
         tmp_binary="$(mktemp -t serv.XXXXXX)"
-        go build -o "$tmp_binary" ./
+        go build -o "$tmp_binary" ./cmd/cli
         VERSION="$($tmp_binary --version)"
         rm "$tmp_binary"
         VERSION="$VERSION" task ci:build

@@ -1,4 +1,4 @@
-package main
+package tailscale
 
 import (
 	"context"
@@ -17,12 +17,12 @@ func TestNormalizeExposeTailscaleArgs(t *testing.T) {
 		{
 			name: "long flag without value keeps path argument",
 			args: []string{"serv", "--expose-tailscale", "."},
-			want: []string{"serv", "--expose-tailscale", exposeTailscaleDefaultValue, "."},
+			want: []string{"serv", "--expose-tailscale", DefaultExposeValue, "."},
 		},
 		{
 			name: "short flag without value keeps path argument",
 			args: []string{"serv", "-T", "."},
-			want: []string{"serv", "-T", exposeTailscaleDefaultValue, "."},
+			want: []string{"serv", "-T", DefaultExposeValue, "."},
 		},
 		{
 			name: "short flag with port value",
@@ -43,9 +43,9 @@ func TestNormalizeExposeTailscaleArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := normalizeExposeTailscaleArgs(tt.args)
+			got := NormalizeArgs(tt.args)
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("normalizeExposeTailscaleArgs() = %#v, want %#v", got, tt.want)
+				t.Fatalf("NormalizeArgs() = %#v, want %#v", got, tt.want)
 			}
 		})
 	}
@@ -57,23 +57,23 @@ func TestParseExposeTailscaleConfig(t *testing.T) {
 		isSet       bool
 		value       string
 		defaultPort string
-		want        tailscaleConfig
+		want        Config
 		wantErr     bool
 	}{
-		{name: "disabled", defaultPort: "50000", want: tailscaleConfig{}},
-		{name: "default port", isSet: true, value: exposeTailscaleDefaultValue, defaultPort: "50000", want: tailscaleConfig{Enabled: true, Port: "50000"}},
-		{name: "explicit port", isSet: true, value: "443", defaultPort: "50000", want: tailscaleConfig{Enabled: true, Port: "443"}},
+		{name: "disabled", defaultPort: "50000", want: Config{}},
+		{name: "default port", isSet: true, value: DefaultExposeValue, defaultPort: "50000", want: Config{Enabled: true, Port: "50000"}},
+		{name: "explicit port", isSet: true, value: "443", defaultPort: "50000", want: Config{Enabled: true, Port: "443"}},
 		{name: "invalid port", isSet: true, value: "70000", defaultPort: "50000", wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseExposeTailscaleConfig(tt.isSet, tt.value, tt.defaultPort)
+			got, err := ParseExposeConfig(tt.isSet, tt.value, tt.defaultPort)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("parseExposeTailscaleConfig() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("ParseExposeConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if got != tt.want {
-				t.Fatalf("parseExposeTailscaleConfig() = %#v, want %#v", got, tt.want)
+				t.Fatalf("ParseExposeConfig() = %#v, want %#v", got, tt.want)
 			}
 		})
 	}
@@ -89,10 +89,10 @@ func TestTailscaleStatusHasHTTPSPort(t *testing.T) {
 		}
 	}`)
 
-	if !tailscaleStatusHasHTTPSPort(status, "443") {
+	if !StatusHasHTTPSPort(status, "443") {
 		t.Fatal("expected status to include HTTPS port 443")
 	}
-	if tailscaleStatusHasHTTPSPort(status, "50000") {
+	if StatusHasHTTPSPort(status, "50000") {
 		t.Fatal("backend local port should not be treated as occupied Tailscale HTTPS port")
 	}
 }
@@ -105,15 +105,15 @@ type checkRunner struct {
 
 func (r checkRunner) LookPath() error                            { return r.lookPathErr }
 func (r checkRunner) StatusJSON(context.Context) ([]byte, error) { return r.status, r.statusErr }
-func (r checkRunner) StartServe(context.Context, string, string, io.Writer, io.Writer) (tailscaleProcess, error) {
+func (r checkRunner) StartServe(context.Context, string, string, io.Writer, io.Writer) (Process, error) {
 	return nil, nil
 }
 
 func TestTailscaleServeArgs(t *testing.T) {
 	want := []string{"serve", "--yes", "--https", "443", "http://127.0.0.1:50000"}
-	got := tailscaleServeArgs("443", "50000")
+	got := ServeArgs("443", "50000")
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("tailscaleServeArgs() = %#v, want %#v", got, want)
+		t.Fatalf("ServeArgs() = %#v, want %#v", got, want)
 	}
 }
 
@@ -124,13 +124,13 @@ https://factory.chicken-matrix.ts.net:60894/
 |-- proxy http://127.0.0.1:60894`
 
 	want := "https://factory.chicken-matrix.ts.net:60894"
-	if got := parseTailscaleHTTPSURL(output); got != want {
-		t.Fatalf("parseTailscaleHTTPSURL() = %q, want %q", got, want)
+	if got := ParseHTTPSURL(output); got != want {
+		t.Fatalf("ParseHTTPSURL() = %q, want %q", got, want)
 	}
 }
 
 func TestTailscaleURLWriterReportsFirstURL(t *testing.T) {
-	writer := newTailscaleURLWriter()
+	writer := NewURLWriter()
 	_, _ = writer.Write([]byte("Available within your tailnet:\n"))
 	_, _ = writer.Write([]byte("https://factory.chicken-matrix.ts.net:60894/\n"))
 
@@ -146,15 +146,15 @@ func TestTailscaleURLWriterReportsFirstURL(t *testing.T) {
 }
 
 func TestCheckTailscaleReady(t *testing.T) {
-	if err := checkTailscaleReady(context.Background(), checkRunner{lookPathErr: errors.New("missing")}, "443"); err == nil {
+	if err := CheckReady(context.Background(), checkRunner{lookPathErr: errors.New("missing")}, "443"); err == nil {
 		t.Fatal("expected missing tailscale to fail")
 	}
 
-	if err := checkTailscaleReady(context.Background(), checkRunner{status: []byte(`{"ServeConfig":{"Web":{"host.ts.net:443":{}}}}`)}, "443"); err == nil {
+	if err := CheckReady(context.Background(), checkRunner{status: []byte(`{"ServeConfig":{"Web":{"host.ts.net:443":{}}}}`)}, "443"); err == nil {
 		t.Fatal("expected configured Tailscale port to fail")
 	}
 
-	if err := checkTailscaleReady(context.Background(), checkRunner{status: []byte(`no serve config`), statusErr: errors.New("exit 1")}, "443"); err != nil {
+	if err := CheckReady(context.Background(), checkRunner{status: []byte(`no serve config`), statusErr: errors.New("exit 1")}, "443"); err != nil {
 		t.Fatalf("no serve config should be allowed: %v", err)
 	}
 }

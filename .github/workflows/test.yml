@@ -20,7 +20,7 @@ jobs:
       - name: Compute CI version
         id: version
         run: |
-          base_version="$(awk -F'"' '/^version:/ { print $2 }' xx.yml)"
+          base_version="$(awk -F'"' '/^version:/ { print $2 }' internal/version/xx.yml)"
           echo "version=${base_version}.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
   test:

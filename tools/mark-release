@@ -4,7 +4,7 @@
 import { file_read, file_write } from "std/fs"
 import { match_regex, parse_int, replace_regex, split } from "std/text"
 
-const manifest = "xx.yml"
+const manifest = "internal/version/xx.yml"
 
 fun die(message: Text) {
     trust $ printf '%s\n' "{message}" >&2 $

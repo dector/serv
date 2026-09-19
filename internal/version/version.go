@@ -1,4 +1,4 @@
-package main
+package version
 
 import (
 	_ "embed"
@@ -7,22 +7,22 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var G Globals
+// DefaultPort is the HTTP port used when none is requested.
+const DefaultPort = 8080
 
-type Globals struct {
-	Version string
-}
-
-func (self *Globals) Init() {
-	self.Version = getVersion()
-}
+// Version is the semver string reported by the CLI. Call Init before use.
+var Version string
 
 //go:embed xx.yml
 var metaYAML string
 
 var versionOverride string
 
-const DefaultPort = 8080
+// Init loads the version from the embedded manifest unless a build-time
+// override was injected with -ldflags.
+func Init() {
+	Version = getVersion()
+}
 
 func getVersion() string {
 	if version := strings.TrimSpace(versionOverride); version != "" {

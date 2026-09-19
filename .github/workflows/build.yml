@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       version:
-        description: Version to stamp into built binaries. Uses xx.yml when empty.
+        description: Version to stamp into built binaries. Uses internal/version/xx.yml when empty.
         required: false
         type: string
         default: ""
