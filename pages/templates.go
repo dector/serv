@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dector/serv/fs"
+	"github.com/dector/serv/internal/fs"
 	"github.com/dector/serv/internal/theme"
 )
 

@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/dector/nettw"
-	servfs "github.com/dector/serv/fs"
+	servfs "github.com/dector/serv/internal/fs"
 	"github.com/dector/serv/middleware"
 	"github.com/dector/serv/pages"
 	"github.com/dector/serv/preview"
