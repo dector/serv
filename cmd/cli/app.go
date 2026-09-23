@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/dector/serv/internal/config"
-	"github.com/dector/serv/internal/tailscale"
 	"github.com/dector/serv/internal/version"
 	"github.com/urfave/cli/v3"
 )
@@ -59,7 +58,7 @@ func newApp() *cli.Command {
 			&cli.StringFlag{
 				Name:        "expose-tailscale",
 				Aliases:     []string{"T"},
-				Value:       tailscale.DefaultExposeValue,
+				Value:       defaultExposeValue,
 				DefaultText: "local port",
 				HideDefault: true,
 				Usage:       "Expose via Tailscale Serve; optional value sets HTTPS port",

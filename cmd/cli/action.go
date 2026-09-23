@@ -8,12 +8,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/dector/serv/internal/listen"
 	"github.com/dector/serv/internal/output"
 	"github.com/dector/serv/internal/server"
-	"github.com/dector/serv/internal/tailscale"
 	"github.com/dector/serv/internal/version"
+	"github.com/dector/serv/internal/tailscale"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v3"
 )
@@ -48,12 +49,13 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	tailscaleConfig, err := tailscale.ParseExposeConfig(exposeTailscale, cmd.String("expose-tailscale"), listenConfig.Port.Str)
+	tailscaleConfig, err := parseExposeConfig(exposeTailscale, cmd.String("expose-tailscale"), listenConfig.Port.Str)
 	if err != nil {
 		return err
 	}
 	if tailscaleConfig.Enabled {
-		if err := tailscale.CheckReady(ctx, tailscale.RealRunner{}, tailscaleConfig.Port); err != nil {
+		httpsPort, _ := strconv.Atoi(tailscaleConfig.Port)
+		if _, err := tailscale.Start(ctx, tailscale.Config{LocalAddr: listenConfig.ReadyAddr, HTTPSPort: httpsPort, Action: tailscale.OnlyCheck}); err != nil {
 			return err
 		}
 	}
@@ -97,7 +99,7 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 		return srv.Serve(listener)
 	}
 
-	return tailscale.ServeWithServer(ctx, srv, listener, listenConfig.ReadyAddr, listenConfig.Port.Str, tailscaleConfig.Port, cmd.Bool("verbose"), tailscale.RealRunner{})
+	return serveWithTailscale(ctx, srv, listener, listenConfig.ReadyAddr, listenConfig.Port.Str, tailscaleConfig.Port, cmd.Bool("verbose"))
 }
 
 func selectListenConfig(cmd *cli.Command, rootFile string, exposeTailscale bool) (listen.Config, error) {
