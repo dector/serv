@@ -13,7 +13,7 @@ import (
 
 	servnet "github.com/dector/serv/internal/netutil"
 	"github.com/dector/serv/internal/output"
-	"github.com/dector/serv/internal/tailscale"
+	"github.com/dector/serv/pkg/tailscale"
 	"github.com/pkg/errors"
 )
 

@@ -14,7 +14,7 @@ import (
 	"github.com/dector/serv/internal/output"
 	"github.com/dector/serv/internal/server"
 	"github.com/dector/serv/internal/version"
-	"github.com/dector/serv/internal/tailscale"
+	"github.com/dector/serv/pkg/tailscale"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v3"
 )
