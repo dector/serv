@@ -4,8 +4,10 @@ package listen
 import (
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 
-	"github.com/dector/nettw"
+	"dector.space/go/nettw"
 	servnet "github.com/dector/serv/internal/netutil"
 	"github.com/pkg/errors"
 )
@@ -42,12 +44,36 @@ func IsTCPPortAvailableOnHost(host, port string) bool {
 	return true
 }
 
-// PickLocalPort chooses a port, seeded by rootFile for stable results.
+// PickLocalPort chooses a stable port, grouping paths in a repo by leading digits.
 func PickLocalPort(requestedPort, rootFile string, exposeTailscale bool) (nettw.Port, error) {
+	seed := portSeed(rootFile)
 	if exposeTailscale {
-		return nettw.ParsePortOrPickAnother("random", nettw.WithIgnoreInvalidPort(true), nettw.WithSeed(rootFile), nettw.WithPortRange(49152, 65535))
+		return nettw.ParsePortOrPickAnother("random", nettw.WithIgnoreInvalidPort(true), seed, nettw.WithPortRange(49152, 65535))
 	}
-	return nettw.ParsePortOrPickAnother(requestedPort, nettw.WithSeed(rootFile))
+	return nettw.ParsePortOrPickAnother(requestedPort, seed)
+}
+
+// portSeed finds the nearest .git marker (directory or worktree file).
+// Outside a repo, preserve the original single-path seed.
+func portSeed(rootFile string) nettw.ParsePortOption {
+	path, err := filepath.Abs(rootFile)
+	if err != nil {
+		return nettw.WithSeed(rootFile)
+	}
+	for dir := path; ; dir = filepath.Dir(dir) {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			rel, err := filepath.Rel(dir, path)
+			if err == nil {
+				return nettw.WithSeedSegments(
+					nettw.SeedSegment{Seed: dir},
+					nettw.SeedSegment{Seed: rel, Digits: 2},
+				)
+			}
+		}
+		if filepath.Dir(dir) == dir {
+			return nettw.WithSeed(rootFile)
+		}
+	}
 }
 
 // Detect resolves the effective listen configuration from the requested port.

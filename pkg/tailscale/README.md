@@ -18,10 +18,10 @@ Actions: `Default` (zero) is `CheckAndStart`. `OnlyCheck` checks the binary and 
 
 ## Choosing a backend port
 
-For a stable high-port choice using [nettw](https://pkg.go.dev/github.com/dector/nettw), bind the selected address and keep its listener alive for the lifetime of the session. The availability check/selection is not a reservation, so `net.Listen` can still fail; handle that error (or retry selection).
+For a stable high-port choice using [nettw](https://pkg.go.dev/dector.space/go/nettw), bind the selected address and keep its listener alive for the lifetime of the session. The availability check/selection is not a reservation, so `net.Listen` can still fail; handle that error (or retry selection).
 
 ```go
-// Imports: context, net, github.com/dector/nettw,
+// Imports: context, net, dector.space/go/nettw,
 // github.com/dector/serv/pkg/tailscale. Assume ctx is your app's context.
 rootPath := "/path/to/project" // same seed gives a stable port choice
 port, err := nettw.ParsePortOrPickAnother("random",

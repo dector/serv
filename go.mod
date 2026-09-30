@@ -3,7 +3,7 @@ module github.com/dector/serv
 go 1.24.1
 
 require (
-	github.com/dector/nettw v0.1.1
+	dector.space/go/nettw v0.1.2-0.20260930044722-a375838f7c60
 	github.com/pkg/errors v0.9.1
 	github.com/urfave/cli/v3 v3.3.8
 	github.com/yuin/goldmark v1.8.2

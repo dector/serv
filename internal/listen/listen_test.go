@@ -4,7 +4,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/dector/nettw"
+	"dector.space/go/nettw"
 )
 
 func TestDetectUsesRequestedPortWhenTailscaleBlocksAllInterfaces(t *testing.T) {
