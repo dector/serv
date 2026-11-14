@@ -1,6 +1,17 @@
 # Changelog
 
-## [0.8.4-snapshot] - Unreleased
+## [0.8.4] - 2026-11-14
+
+### Added
+
+- Add syntax highlighting for code.
+- Add `BIND` environment variable to override the listening address; empty, `all`, and `0.0.0.0` bind all IPv4 interfaces.
+- Publish a reusable Tailscale package with session lifecycle controls.
+
+### Changed
+
+- Group stable port seeds by repository.
+- Move CLI implementation details into internal packages.
 
 ## [0.8.3] - 2026-08-01
 
