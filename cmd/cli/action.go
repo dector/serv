@@ -103,5 +103,9 @@ func serveAction(ctx context.Context, cmd *cli.Command) error {
 }
 
 func selectListenConfig(cmd *cli.Command, rootFile string, exposeTailscale bool) (listen.Config, error) {
-	return listen.Detect(cmd.String("port"), cmd.IsSet("port"), rootFile, exposeTailscale, listen.IsTCPPortAvailableOnHost, listen.PickLocalPort)
+	var bindHost *string
+	if value, ok := os.LookupEnv("BIND"); ok {
+		bindHost = &value
+	}
+	return listen.Detect(cmd.String("port"), cmd.IsSet("port"), rootFile, exposeTailscale, bindHost, listen.IsTCPPortAvailableOnHost, listen.PickLocalPort)
 }

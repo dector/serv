@@ -18,7 +18,7 @@ func TestDetectUsesRequestedPortWhenTailscaleBlocksAllInterfaces(t *testing.T) {
 
 	for _, requestedPort := range []string{"8080", "3000"} {
 		t.Run(requestedPort, func(t *testing.T) {
-			got, err := Detect(requestedPort, requestedPort == "3000", "/root", false, available, picker)
+			got, err := Detect(requestedPort, requestedPort == "3000", "/root", false, nil, available, picker)
 			if err != nil {
 				t.Fatalf("Detect() error = %v", err)
 			}
@@ -45,7 +45,7 @@ func TestDetectPicksAnotherWhenLocalhostPortUnavailable(t *testing.T) {
 		return nettw.Port{Str: "12345"}, nil
 	}
 
-	got, err := Detect("8080", false, "/root", false, available, picker)
+	got, err := Detect("8080", false, "/root", false, nil, available, picker)
 	if err != nil {
 		t.Fatalf("Detect() error = %v", err)
 	}
@@ -64,7 +64,7 @@ func TestDetectTailscaleExplicitPortRequiresLocalhostAvailability(t *testing.T) 
 		return nettw.Port{}, nil
 	}
 
-	if _, err := Detect("3000", true, "/root", true, available, picker); err == nil {
+	if _, err := Detect("3000", true, "/root", true, nil, available, picker); err == nil {
 		t.Fatal("expected unavailable explicit Tailscale local port to fail")
 	}
 }
@@ -78,7 +78,7 @@ func TestDetectTailscaleWithoutPortPicksRandomHighPort(t *testing.T) {
 		return nettw.Port{Str: "55555"}, nil
 	}
 
-	got, err := Detect("8080", false, "/root", true, available, picker)
+	got, err := Detect("8080", false, "/root", true, nil, available, picker)
 	if err != nil {
 		t.Fatalf("Detect() error = %v", err)
 	}

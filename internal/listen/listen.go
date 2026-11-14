@@ -77,10 +77,18 @@ func portSeed(rootFile string) nettw.ParsePortOption {
 }
 
 // Detect resolves the effective listen configuration from the requested port.
-func Detect(requestedPort string, portIsSet bool, rootFile string, exposeTailscale bool, available AvailabilityFunc, pickPort PickerFunc) (Config, error) {
+// A non-nil bindHost overrides automatic binding; empty and "all" mean 0.0.0.0.
+func Detect(requestedPort string, portIsSet bool, rootFile string, exposeTailscale bool, bindHost *string, available AvailabilityFunc, pickPort PickerFunc) (Config, error) {
+	host := "127.0.0.1"
+	if bindHost != nil {
+		host = *bindHost
+		if host == "" || host == "all" {
+			host = "0.0.0.0"
+		}
+	}
 	var port nettw.Port
 	if !exposeTailscale {
-		if parsedPort, err := servnet.ValidateTCPPort(requestedPort); err == nil && available("127.0.0.1", parsedPort) {
+		if parsedPort, err := servnet.ValidateTCPPort(requestedPort); err == nil && available(host, parsedPort) {
 			port = nettw.Port{Str: parsedPort}
 		} else {
 			pickedPort, err := pickPort(requestedPort, rootFile, false)
@@ -94,7 +102,7 @@ func Detect(requestedPort string, portIsSet bool, rootFile string, exposeTailsca
 		if err != nil {
 			return Config{}, fmt.Errorf("invalid --port: %w", err)
 		}
-		if !available("127.0.0.1", parsedPort) {
+		if !available(host, parsedPort) {
 			return Config{}, errors.Errorf("local port %s is not available", parsedPort)
 		}
 		port = nettw.Port{Str: parsedPort}
@@ -110,6 +118,17 @@ func Detect(requestedPort string, portIsSet bool, rootFile string, exposeTailsca
 	bindAddr := Addr("", port.Str)
 	if exposeTailscale || !available("", port.Str) {
 		bindAddr = readyAddr
+	}
+	if bindHost != nil {
+		if !available(host, port.Str) {
+			return Config{}, errors.Errorf("BIND address %s is not available", Addr(host, port.Str))
+		}
+		bindAddr = Addr(host, port.Str)
+		if host == "::" {
+			readyAddr = Addr("::1", port.Str)
+		} else if host != "0.0.0.0" {
+			readyAddr = bindAddr
+		}
 	}
 	return Config{Port: port, BindAddr: bindAddr, ReadyAddr: readyAddr}, nil
 }

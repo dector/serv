@@ -30,6 +30,21 @@ serv -p 3000 README.md
 
 If the requested port is unavailable, `serv` automatically picks another free port.
 
+## Bind address
+
+Set `BIND` to override the listening address:
+
+``` shell
+BIND=all serv .
+BIND=0.0.0.0 serv .
+BIND= serv .
+BIND=127.0.0.1 serv .
+```
+
+Empty, `all`, and `0.0.0.0` all bind every IPv4 interface, making the server accessible from the network. An explicit bind never silently falls back to localhost.
+
+When `BIND` is unset, existing automatic binding is preserved: all interfaces when available, otherwise localhost. Tailscale uses localhost by default; `BIND` overrides this too.
+
 ## Expose via Tailscale
 
 Use `--expose-tailscale`/`-T` to expose the local server with [Tailscale Serve](https://tailscale.com/kb/1242/tailscale-serve). The `tailscale` CLI must be installed and configured.
@@ -43,7 +58,7 @@ serv -p 3000 -T 443 README.md
 
 When `-T` is used without a value, `serv` chooses a seeded-random high local port and uses the same HTTPS port for Tailscale. Passing a value to `-T` sets the Tailscale HTTPS port only; `--port`/`-p` sets the local backend port only.
 
-With Tailscale exposure enabled, the local server binds to `127.0.0.1` instead of all interfaces. If an explicit local port is busy, `serv` fails instead of choosing another port.
+With Tailscale exposure enabled, the local server binds to `127.0.0.1` instead of all interfaces unless `BIND` is set. If an explicit local port is busy, `serv` fails instead of choosing another port.
 
 ## Open in browser
 
