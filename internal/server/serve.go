@@ -3,8 +3,10 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
 	"html"
+	"io"
 	"io/fs"
 	"mime"
 	"net/http"
@@ -156,22 +158,38 @@ func serveFolder(lw http.ResponseWriter, r *http.Request, requestedPath string, 
 }
 
 func serveFile(lw http.ResponseWriter, r *http.Request, requestedPath string, fsys fs.FS, cfg config.Serve) error {
-	content, err := fs.ReadFile(fsys, requestedPath)
+	if shouldRenderPreview(r, requestedPath, cfg.Mode) {
+		return servePreviewFile(lw, r, requestedPath, fsys, preview.Options{})
+	}
+
+	file, err := fsys.Open(requestedPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
 	if err != nil {
 		return err
 	}
 
-	if shouldRenderPreview(r, requestedPath, cfg.Mode) {
-		return writePreview(lw, r, requestedPath, content, preview.Options{})
+	content, ok := file.(io.ReadSeeker)
+	if !ok {
+		// Preserve support for filesystems whose files cannot seek.
+		data, err := io.ReadAll(file)
+		if err != nil {
+			return err
+		}
+		content = bytes.NewReader(data)
 	}
 
-	// Serve the file using MIME-by-extension behavior for raw responses.
+	// Preserve MIME-by-extension behavior for raw responses.
 	contentType := mime.TypeByExtension(filepath.Ext(requestedPath))
 	if contentType != "" {
 		lw.Header().Set("Content-Type", contentType)
 	}
-	_, err = lw.Write(content)
-	return err
+	http.ServeContent(lw, r, info.Name(), info.ModTime(), content)
+	return nil
 }
 
 func servePreviewFile(lw http.ResponseWriter, r *http.Request, requestedPath string, fsys fs.FS, options preview.Options) error {
