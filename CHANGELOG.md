@@ -2,6 +2,14 @@
 
 ## [0.8.5-snapshot] - Unreleased
 
+### Added
+
+- Support HTTP byte-range requests for all raw files, enabling seeking in network media players.
+
+### Changed
+
+- Stream raw disk files without loading the entire file into memory; rendered previews remain unchanged.
+
 ## [0.8.4] - 2026-11-14
 
 ### Added
